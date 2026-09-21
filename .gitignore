@@ -1,0 +1,4 @@
+out/
+*.bin
+*.a
+.DS_Store
