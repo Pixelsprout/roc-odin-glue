@@ -68,10 +68,9 @@ Roc_Init :: struct {
 Roc_Step_Arg0 :: Roc_Init
 Roc_Step :: Roc_Init
 
-foreign import roc_app "system:c"
-
+// The Roc app defines these symbols at the final link.
 @(default_calling_convention = "c")
-foreign roc_app {
+foreign {
 	roc_init :: proc(arg0: u64) -> Roc_Init ---
 	roc_step :: proc(arg0: Roc_Init, arg1: f32) -> Roc_Init ---
 }

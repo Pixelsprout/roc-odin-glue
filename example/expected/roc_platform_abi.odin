@@ -46,10 +46,9 @@ Roc_Step_Arg0_Points :: Roc_Init_Points
 Roc_Step :: Roc_Init
 Roc_Step_Points :: Roc_Init_Points
 
-foreign import roc_app "system:c"
-
+// The Roc app defines these symbols at the final link.
 @(default_calling_convention = "c")
-foreign roc_app {
+foreign {
 	roc_init :: proc(arg0: u64) -> Roc_Init ---
 	roc_step :: proc(arg0: Roc_Init, arg1: f32) -> Roc_Init ---
 }

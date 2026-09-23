@@ -266,14 +266,14 @@ one_struct = |table, plan, name, layout| {
 
 # ------------------------------------------------------------- foreign block
 
-## The extern declarations the host links against.
+## The extern declarations the host links against. The block names no library:
+## "system:c" becomes an input file named c for lib.exe on Windows.
 foreign_block : TypeTable, List(Named), List(ProvidesEntry) -> Str
 foreign_block = |table, plan, provides_entries| {
     var $out =
-        \\foreign import roc_app "system:c"
-        \\
+        \\// The Roc app defines these symbols at the final link.
         \\@(default_calling_convention = "c")
-        \\foreign roc_app {
+        \\foreign {
         \\
 
     for entry in provides_entries {
