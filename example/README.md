@@ -1,12 +1,17 @@
-# Example
+# Examples
 
-A minimal platform with no host and no build target, so `roc glue` runs
-against it directly:
+Two platforms with no host and no build target, so `roc glue` runs against
+them directly:
 
-    roc glue ../OdinGlue.roc /tmp/out ./platform/main.roc
-    diff /tmp/out/roc_platform_abi.odin expected/roc_platform_abi.odin
+| Directory | Shows |
+|---|---|
+| `platform/` | Records, a list and scalars passed by value. |
+| `boxed/platform/` | A `Box` model, a `Str` inside a list of records, and lists of `U16`. It is the rocco engine's platform header. |
 
-`expected/roc_platform_abi.odin` is the committed output. It compiles as Odin
-with every assertion holding:
+Each has a committed output in `expected/`. `check.sh` regenerates both and
+compares them, compiles both with `-vet -strict-style`, and runs the helper
+tests in `test/` against the boxed output:
 
-    odin build <dir containing a copy of it> -build-mode:static -out:/tmp/a.a -vet -strict-style
+    ./example/check.sh
+
+`test/host_stub.odin` stands in for the host's `roc_alloc` and `roc_dealloc`.

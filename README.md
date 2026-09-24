@@ -25,11 +25,12 @@ $EDITOR OdinGlue.roc          # odin_package = "engine"
 roc glue ./OdinGlue.roc ./src path/to/platform/main.roc
 ```
 
-Try it against the bundled example, which needs no host and no build target:
+Try it against the bundled examples, which need no host and no build target.
+`example/check.sh` regenerates both, compares them with the committed files,
+compiles them and runs the helper tests:
 
 ```sh
-roc glue ./OdinGlue.roc /tmp/out ./example/platform/main.roc
-diff /tmp/out/roc_platform_abi.odin example/expected/roc_platform_abi.odin
+./example/check.sh
 ```
 
 ## What it generates
@@ -109,6 +110,8 @@ survives adding a field to the record. Regenerate and rebuild; change nothing.
 | `F32`, `F64` | `f32`, `f64` |
 | `Bool` | `bool` |
 | `List(T)` | `Roc_List(T)` |
+| `Str` | `Roc_Str`, 24 bytes, up to 23 bytes inline |
+| `Box(T)` | `rawptr`; the payload is not emitted |
 | records | a generated `struct`, in committed field order |
 
 **Everything else crashes**, naming the type and its id:
@@ -121,14 +124,33 @@ That is deliberate. A generator that guesses produces a file which compiles,
 asserts cleanly, and reads garbage at runtime. Unimplemented, and each is real
 work rather than a missing match arm:
 
-- **`Str`** — 24 bytes with a small-string optimisation, not Odin's `string`.
 - **`Dec`** — `i128` scaled by 10<sup>18</sup>, size 16, **align 16**. Needs a
   wrapper struct so it is not mistaken for an integer.
 - **Tag unions** — need a `struct #raw_union` payload plus an explicit
   discriminant at `discriminant_offset`. Do *not* map them to Odin's `union`,
   which owns its own tag placement and values. Discriminants are assigned
   alphabetically, and multi-argument payloads are reordered by alignment.
-- **`Box`**, SIMD vectors, recursive types.
+- SIMD vectors, recursive types.
+
+### Refcount helpers
+
+The generated file also holds the helpers a host needs to pass values into
+Roc and free the values Roc returns. Each helper allocates and frees through
+`roc_alloc` and `roc_dealloc`, which the host defines in the same package.
+
+| Helper | Does |
+|---|---|
+| `roc_str_from_slice(s)` | A `Roc_Str` with refcount 1. Short strings allocate nothing. |
+| `roc_list_from_slice(elems)` | A `Roc_List` with refcount 1 and the right header for its element type. An empty slice allocates nothing. |
+| `roc_decref(value)` | Drops one reference to a `Roc_Str` or to each refcounted field of a record. |
+| `roc_list_decref(list)` | Drops one reference to a list. On the last one, it also drops each element's references. |
+| `roc_incref_box(box)` | Adds one reference to a box. |
+
+A list whose elements hold refcounted values has a 16-byte header: the
+element count, then the refcount. Other lists and strings have an 8-byte
+header. The helpers pick the header from the type table, so the host never
+computes an offset. A box cannot be freed from the host, because only the
+compiler knows its payload layout. Export a Roc function that drops it.
 
 ## Three things to know
 
@@ -166,8 +188,8 @@ file, and they cannot catch a type of the right width but the wrong meaning
   `size_of(uintptr) == 8`. The type table carries both widths
   (`offset32`/`offset64`), so 32-bit support is additive work, not a redesign.
 - Verified on `arm64mac`. Nothing else has been tried.
-- No deallocation or refcount helpers are generated. The host implements
-  `roc_alloc`, `roc_dealloc` and `roc_realloc` itself.
+- The host implements `roc_alloc`, `roc_dealloc` and `roc_realloc` itself.
+- The refcount helpers are not atomic. They assume one thread.
 
 ## How it works
 
