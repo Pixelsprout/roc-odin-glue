@@ -164,8 +164,11 @@ odin_type = |table, plan, type_id| {
         RocBool => "bool"
         RocStr => "string"
         RocDec => "i128"
+        RocBox(elem_id) => "^${odin_type(table, plan, elem_id)}"
         RocList(elem_id) => "Roc_List(${odin_type(table, plan, elem_id)})"
         RocRecord(rec) => canonical(plan, rec.name)
+        RocUnit => "struct{}"
+        RocUnknown(_) => "rawptr"
         _other => crash "OdinGlue: no Odin spelling for ${table.structural_token(type_id)} (type id ${U64.to_str(type_id)})"
     }
 }
