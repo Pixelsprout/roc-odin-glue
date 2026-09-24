@@ -10,7 +10,7 @@
 ## Set `odin_package` below before first use.
 ##
 ## Supports: records, lists, `Str`, `Box` as an opaque pointer, and the scalar
-## builtins. Anything else crashes naming the type, by design — see README.
+## builtins. Anything else crashes and names the type, by design. See README.
 ##
 app [make_glue] { pf: platform glue }
 
