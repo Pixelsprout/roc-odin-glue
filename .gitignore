@@ -2,3 +2,5 @@ out/
 *.bin
 *.a
 .DS_Store
+# odin test writes its binary into the current directory.
+tmp.*
