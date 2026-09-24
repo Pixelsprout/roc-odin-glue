@@ -149,9 +149,19 @@ canonical = |plan, key| {
 odin_type : TypeTable, List(Named), U64 -> Str
 odin_type = |table, plan, type_id| {
     match table.get(type_id) {
+        RocU8 => "u8"
+        RocU16 => "u16"
+        RocU32 => "u32"
         RocU64 => "u64"
+        RocU128 => "u128"
+        RocI8 => "i8"
+        RocI16 => "i16"
+        RocI32 => "i32"
+        RocI64 => "i64"
+        RocI128 => "i128"
         RocF32 => "f32"
         RocF64 => "f64"
+        RocBool => "bool"
         RocStr => "string"
         RocDec => "i128"
         RocList(elem_id) => "Roc_List(${odin_type(table, plan, elem_id)})"
