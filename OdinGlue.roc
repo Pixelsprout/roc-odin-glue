@@ -649,9 +649,8 @@ foreign_block = |table, plan, provides_entries| {
                     $args = $args.concat("${sep}arg${U64.to_str($i)}: ${odin_type(table, plan, arg_id)}")
                     $i = $i + 1
                 }
-                $out = $out.concat(
-                    "	${entry.ffi_symbol} :: proc(${$args}) -> ${odin_type(table, plan, func.ret)} ---\n",
-                )
+                ret = if table.is_unit(func.ret) { "" } else { " -> ${odin_type(table, plan, func.ret)}" }
+                $out = $out.concat("	${entry.ffi_symbol} :: proc(${$args})${ret} ---\n")
             }
             _ => {}
         }

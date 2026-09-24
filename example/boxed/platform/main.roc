@@ -10,8 +10,8 @@ platform ""
         "roc_init": init_for_host,
         "roc_step": step_for_host,
         "roc_view": view_for_host,
+        "roc_drop_model": drop_model_for_host,
     }
-
 # The engine's vocabulary. Every game speaks these three types and nothing
 # in them names a game. Key codes are sokol's: SPACE = 32, A = 65, W = 87.
 # Mesh ids come from the manifest in Config: the engine loads every asset it
@@ -36,3 +36,9 @@ step_for_host = |boxed, input, dt| Box.box(step(Box.unbox(boxed), input, dt))
 
 view_for_host : Box(Model) -> { camera : { eye : { x : F32, y : F32, z : F32 }, target : { x : F32, y : F32, z : F32 }, fov_y : F32 }, draws : List({ id : U64, mesh : U32, pos : { x : F32, y : F32, z : F32 }, scale : { x : F32, y : F32, z : F32 }, yaw : F32, tint : { x : F32, y : F32, z : F32 } }) }
 view_for_host = |boxed| view(Box.unbox(boxed))
+
+# The host cannot free the Model, because only the compiler knows its layout.
+# Dropping the box here frees it and everything inside. Remove this export
+# when the glue can emit a payload drop for Box(Model).
+drop_model_for_host : Box(Model) -> {}
+drop_model_for_host = |_boxed| {}

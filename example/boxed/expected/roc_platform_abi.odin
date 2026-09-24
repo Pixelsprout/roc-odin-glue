@@ -359,4 +359,5 @@ foreign {
 	roc_init :: proc(arg0: Roc_Init_Arg0) -> rawptr ---
 	roc_step :: proc(arg0: rawptr, arg1: Roc_Step_Arg1, arg2: f32) -> rawptr ---
 	roc_view :: proc(arg0: rawptr) -> Roc_View ---
+	roc_drop_model :: proc(arg0: rawptr) ---
 }
