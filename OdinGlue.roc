@@ -38,6 +38,7 @@ make_glue = |types_list| {
     dbg plan
 
     content = file_header
+        .concat(str_struct)
         .concat(list_struct(table))
         .concat(structs(table, plan))
         .concat(foreign_block(table, plan, input.provides_entries))
@@ -162,9 +163,9 @@ odin_type = |table, plan, type_id| {
         RocF32 => "f32"
         RocF64 => "f64"
         RocBool => "bool"
-        RocStr => "string"
+        RocStr => "Roc_Str"
         RocDec => "i128"
-        RocBox(elem_id) => "^${odin_type(table, plan, elem_id)}"
+        RocBox(_elem_id) => "rawptr"
         RocList(elem_id) => "Roc_List(${odin_type(table, plan, elem_id)})"
         RocRecord(rec) => canonical(plan, rec.name)
         RocUnit => "struct{}"
@@ -194,6 +195,20 @@ file_header =
             \\
             \\
         )
+
+## Roc's string representation: pointer + length + capacity, all 8 bytes on 64-bit.
+## Always emitted; Roc_Str is used whenever a RocStr field appears.
+str_struct : Str
+str_struct =
+    \\Roc_Str :: struct {
+    \\\tbytes:    [^]u8,
+    \\\tlength:   uint,
+    \\\tcapacity: uint,
+    \\}
+    \\#assert(size_of(Roc_Str) == 24)
+    \\#assert(align_of(Roc_Str) == 8)
+    \\
+    \\
 
 ## The list header, with its size and alignment read off the type table rather
 ## than assumed.
