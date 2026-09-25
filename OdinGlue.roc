@@ -371,7 +371,6 @@ list_runtime = |size, align|
             \\	}
             \\}
             \\
-            \\// Releases the elements only when this call dropped the last reference.
             \\@(private = "file")
             \\roc_list_decref_elements :: proc(list: Roc_List($T), release: proc(value: T)) {
             \\	data := roc_list_data(list)
@@ -391,7 +390,6 @@ list_runtime = |size, align|
             \\
         )
 
-## Roc's string: up to 23 bytes inline, marked by the top bit of the last byte.
 str_runtime : U64, U64 -> Str
 str_runtime = |size, align|
     \\Roc_Str :: struct {
@@ -402,7 +400,8 @@ str_runtime = |size, align|
     \\
     \\
         .concat("#assert(size_of(Roc_Str) == ${U64.to_str(size)})\n")
-        .concat("#assert(align_of(Roc_Str) == ${U64.to_str(align)})\n\n")
+        .concat("#assert(align_of(Roc_Str) == ${U64.to_str(align)})\n")
+        .concat("// The inline length byte is the last byte, so the layout assumes little-endian.\n#assert(ODIN_ENDIAN == .Little)\n\n")
         .concat(
             \\// A string shorter than Roc_Str lives inline. Its last byte holds the
             \\// length with the top bit set.
@@ -550,7 +549,12 @@ refcount_helpers = |table, plan, reached| {
                             } else {
                                 crash "OdinGlue: ${elem} has a release but is not refcounted"
                             }
-                        Flat => "roc_list_decref_flat(list)"
+                        Flat =>
+                            if refcounted {
+                                crash "OdinGlue: ${elem} is refcounted but has no release"
+                            } else {
+                                "roc_list_decref_flat(list)"
+                            }
                     }
                     flag = if refcounted { "true" } else { "false" }
                     $out = $out
@@ -570,7 +574,6 @@ refcount_helpers = |table, plan, reached| {
         .concat(proc_group("roc_list_from_slice", $list_builders))
 }
 
-## Decrefs every field that holds a refcounted value.
 record_decref : TypeTable, List(Named), Named -> Str
 record_decref = |table, plan, entry| {
     var $out = "${decref_name(entry.name)} :: proc(value: ${entry.name}) {\n"

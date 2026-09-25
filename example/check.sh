@@ -20,4 +20,4 @@ odin build "$out/build" -build-mode:static -out:"$out/build.a" -vet -strict-styl
 echo "== example compiles"
 
 cp example/boxed/expected/roc_platform_abi.odin example/test/*.odin "$out/test"
-odin test "$out/test" -vet -strict-style -define:ODIN_TEST_THREADS=1
+odin test "$out/test" -out:"$out/test.bin" -vet -strict-style -define:ODIN_TEST_THREADS=1

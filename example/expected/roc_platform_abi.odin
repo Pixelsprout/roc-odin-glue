@@ -105,7 +105,6 @@ roc_list_decref_flat :: proc(list: Roc_List($T)) {
 	}
 }
 
-// Releases the elements only when this call dropped the last reference.
 @(private = "file")
 roc_list_decref_elements :: proc(list: Roc_List($T), release: proc(value: T)) {
 	data := roc_list_data(list)

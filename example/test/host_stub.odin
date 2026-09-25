@@ -3,8 +3,7 @@ package engine
 import "base:runtime"
 
 // The generated helpers call roc_alloc and roc_dealloc by name, as a real
-// host defines them. This stub records every block so the tests can check
-// that each free matches an allocation, with the same alignment.
+// host defines them.
 
 Block :: struct {
 	size:      uint,

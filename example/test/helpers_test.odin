@@ -156,3 +156,48 @@ test_incref_box :: proc(t: ^testing.T) {
 	testing.expect_value(t, storage[0], 0)
 	roc_incref_box(nil)
 }
+
+@(test)
+test_24_byte_str_allocates :: proc(t: ^testing.T) {
+	stub_reset()
+	s := roc_str_from_slice("abcdefghijklmnopqrstuvwx")
+	testing.expect_value(t, g_allocs, 1)
+	testing.expect(t, int(s.length) >= 0)
+	testing.expect_value(t, s.length, 24)
+	roc_decref(s)
+	expect_clean(t)
+}
+
+@(test)
+test_inline_str_decref_frees_nothing :: proc(t: ^testing.T) {
+	stub_reset()
+	s := roc_str_from_slice("abcdefghijklmnopqrstuvw")
+	roc_decref(s)
+	testing.expect_value(t, g_deallocs, 0)
+	testing.expect_value(t, g_bad_frees, 0)
+}
+
+@(test)
+test_static_str_is_never_freed :: proc(t: ^testing.T) {
+	stub_reset()
+	s := roc_str_from_slice(big_name)
+	(^int)(uintptr(s.bytes) - 8)^ = 0
+	roc_decref(s)
+	testing.expect_value(t, g_deallocs, 0)
+	(^int)(uintptr(s.bytes) - 8)^ = 1
+	roc_decref(s)
+	expect_clean(t)
+}
+
+@(test)
+test_seamless_str_slice_frees_the_backing_allocation :: proc(t: ^testing.T) {
+	stub_reset()
+	backing := roc_str_from_slice(big_name)
+	slice := Roc_Str {
+		bytes                 = backing.bytes[2:],
+		capacity_or_alloc_ptr = uint(uintptr(backing.bytes)) | 1,
+		length                = backing.length - 2,
+	}
+	roc_decref(slice)
+	expect_clean(t)
+}

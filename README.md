@@ -112,6 +112,7 @@ survives adding a field to the record. Regenerate and rebuild; change nothing.
 | `List(T)` | `Roc_List(T)` |
 | `Str` | `Roc_Str`, 24 bytes, up to 23 bytes inline |
 | `Box(T)` | `rawptr`; the payload is not emitted |
+| `{}` | a proc with no result; only as a return type |
 | records | a generated `struct`, in committed field order |
 
 **Everything else crashes**, naming the type and its id:
