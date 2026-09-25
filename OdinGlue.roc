@@ -201,9 +201,9 @@ file_header =
 str_struct : Str
 str_struct =
     \\Roc_Str :: struct {
-    \\\tbytes:    [^]u8,
-    \\\tlength:   uint,
-    \\\tcapacity: uint,
+    \\\tbytes:                [^]u8,
+    \\\tcapacity_or_alloc_ptr: uint,
+    \\\tlength:               uint,
     \\}
     \\#assert(size_of(Roc_Str) == 24)
     \\#assert(align_of(Roc_Str) == 8)
