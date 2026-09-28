@@ -235,5 +235,4 @@ reimplements Roc's field-order rule. Only a hand-transcriber needs to know it.
 
 ## Licence
 
-Not yet chosen. Roc itself is UPL-1.0; matching it is the obvious choice if
-this is ever offered upstream.
+UPL-1.0, the same licence as Roc. See `LICENSE`.
