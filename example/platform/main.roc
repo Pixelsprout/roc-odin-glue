@@ -4,7 +4,7 @@ platform ""
         step: { count : U64, points : List({ x : F32, y : F32 }) }, F32 -> { count : U64, points : List({ x : F32, y : F32 }) },
     }
     exposes []
-    packages { roc: "nightly-2026-09-12-220fd47" }
+    packages { roc: "nightly-2026-09-27-a3ce7f1" }
     provides {
         "roc_init": init_for_host,
         "roc_step": step_for_host,

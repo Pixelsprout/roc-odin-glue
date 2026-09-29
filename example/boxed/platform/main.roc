@@ -5,7 +5,7 @@ platform ""
         view : Model -> { camera : { eye : { x : F32, y : F32, z : F32 }, target : { x : F32, y : F32, z : F32 }, fov_y : F32 }, draws : List({ id : U64, mesh : U32, pos : { x : F32, y : F32, z : F32 }, scale : { x : F32, y : F32, z : F32 }, yaw : F32, tint : { r : F32, g : F32, b : F32 } }) },
     }
     exposes []
-    packages { roc: "nightly-2026-09-12-220fd47" }
+    packages { roc: "nightly-2026-09-27-a3ce7f1" }
     provides {
         "roc_init": init_for_host,
         "roc_step": step_for_host,

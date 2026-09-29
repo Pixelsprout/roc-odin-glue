@@ -10,7 +10,7 @@ host, the `RocList` header, the extern signatures to link against, and
 compile-time assertions pinning every committed offset, size and alignment.
 
 > **Status: works, and narrow.** Verified against
-> `nightly-2026-09-12-220fd47` on `arm64mac`. Roc is pre-alpha and the glue
+> `nightly-2026-09-27-a3ce7f1` on `arm64mac`. Roc is pre-alpha and the glue
 > platform API moves; treat everything here as a snapshot. It handles the types
 > a small platform needs and crashes loudly on the rest — see
 > [Supported types](#supported-types).

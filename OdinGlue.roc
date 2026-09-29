@@ -55,8 +55,8 @@ name_plan = |table, provides_entries| {
         |acc, entry| {
             bare = Str.drop_prefix(entry.ffi_symbol, "roc_")
             base = "Roc_${RocName.from_str(bare).to_pascal_clean()}"
-            match table.get(entry.type_id) {
-                RocFunction(func) => {
+            match entry.exported {
+                ProvidedProcedure(func) => {
                     var $plan = acc
                     var $arg_index = 0
 
@@ -202,7 +202,16 @@ reachable : TypeTable, List(ProvidesEntry) -> List(U64)
 reachable = |table, provides_entries| {
     var $seen = []
     for entry in provides_entries {
-        $seen = reach(table, $seen, entry.type_id)
+        $seen = match entry.exported {
+            ProvidedProcedure(func) => {
+                var $s = $seen
+                for arg_id in func.args {
+                    $s = reach(table, $s, arg_id)
+                }
+                reach(table, $s, func.ret)
+            }
+            ProvidedData(type_id) => reach(table, $seen, type_id)
+        }
     }
     $seen
 }
@@ -215,12 +224,6 @@ reach = |table, seen, type_id| {
 
     var $seen = seen.append(type_id)
     match table.get(type_id) {
-        RocFunction(func) => {
-            for arg_id in func.args {
-                $seen = reach(table, $seen, arg_id)
-            }
-            reach(table, $seen, func.ret)
-        }
         RocList(elem_id) => reach(table, $seen, elem_id)
         RocRecord(rec) => {
             for field in rec.fields {
@@ -643,8 +646,8 @@ foreign_block = |table, plan, provides_entries| {
         \\
 
     for entry in provides_entries {
-        match table.get(entry.type_id) {
-            RocFunction(func) => {
+        match entry.exported {
+            ProvidedProcedure(func) => {
                 var $args = ""
                 var $i = 0
                 for arg_id in func.args {
