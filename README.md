@@ -115,6 +115,7 @@ survives adding a field to the record. Regenerate and rebuild; change nothing.
 | `{}` | a proc with no result; only as a return type |
 | records | a generated `struct`, in committed field order |
 | tag unions with no payloads | a generated `enum` |
+| single-tag unions | a generated `struct` holding only the payload, or `struct {}` with none |
 | other non-recursive tag unions | a generated `struct` holding a payload `#raw_union` and the tag |
 
 **Everything else crashes**, naming the type and its id:
@@ -133,7 +134,7 @@ work rather than a missing match arm:
   union needs refcounting.
 - **Tag unions with a refcounted payload**: a `List`, `Str` or `Box` inside a
   payload needs a decref that switches on the tag.
-- Single-tag unions, SIMD vectors, other recursive types.
+- Empty tag unions, SIMD vectors, other recursive types.
 
 ### Tag unions
 
@@ -170,8 +171,10 @@ the committed tag size. A tag with several payload values gets a payload struct
 (`Roc_View_Ray_Hit`), with its fields `_0`, `_1`, … in the committed order,
 which sorts them by alignment. A payload field whose name is an Odin keyword
 gets a trailing underscore (`switch_`). A union with no payloads is a bare
-`enum`. OdinGlue emits only the 64-bit layout, with no accessors or
-constructors.
+`enum`. A single-tag union has no tag bytes, so it is only its payload:
+`[Spawn(U64)]` is a struct with one `spawn: u64` field, and `[Quit]` is
+`struct {}`, size 0. OdinGlue emits only the 64-bit layout, with no
+accessors or constructors.
 The full file is in [`example/unions/expected/`](example/unions/expected/).
 
 ### Refcount helpers
@@ -184,15 +187,20 @@ Roc and free the values Roc returns. Each helper allocates and frees through
 |---|---|
 | `roc_str_from_slice(s)` | A `Roc_Str` with refcount 1. Short strings allocate nothing. |
 | `roc_list_from_slice(elems)` | A `Roc_List` with refcount 1 and the right header for its element type. An empty slice allocates nothing. |
-| `roc_decref(value)` | Drops one reference to a `Roc_Str` or to each refcounted field of a record. |
+| `roc_decref(value)` | Drops one reference to a `Roc_Str` or to each refcounted field of a record, except a box. |
 | `roc_list_decref(list)` | Drops one reference to a list. On the last one, it also drops each element's references. |
 | `roc_incref_box(box)` | Adds one reference to a box. |
 
 A list whose elements hold refcounted values has a 16-byte header: the
 element count, then the refcount. Other lists and strings have an 8-byte
 header. The helpers pick the header from the type table, so the host never
-computes an offset. A box cannot be freed from the host, because only the
+computes an offset. A list of a zero-size type still allocates its header, and
+its length counts the elements. A box cannot be freed from the host, because only the
 compiler knows its payload layout. Export a Roc function that drops it.
+`roc_decref` on a record skips a `Box` field for the same reason: the host
+keeps that reference. A function can return `{ model : Box(Model), ... }`,
+and the host frees the other fields and holds on to the box. A box in a list
+element or a nested record crashes the glue, because nothing would keep it.
 
 ## Three things to know
 

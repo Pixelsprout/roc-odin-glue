@@ -93,3 +93,39 @@ test_union_in_a_list_is_flat :: proc(t: ^testing.T) {
 	testing.expect_value(t, g_deallocs, g_allocs)
 	testing.expect_value(t, g_bad_frees, 0)
 }
+
+@(test)
+test_single_tag_without_payload_is_zero_sized :: proc(t: ^testing.T) {
+	testing.expect_value(t, size_of(Roc_View_Halt), 0)
+}
+
+@(test)
+test_single_tag_with_payload_is_only_its_payload :: proc(t: ^testing.T) {
+	spawn := Roc_View_Spawn {
+		spawn = 42,
+	}
+	testing.expect_value(t, size_of(Roc_View_Spawn), 8)
+	testing.expect_value(t, (^u64)(&spawn)^, 42)
+}
+
+@(test)
+test_list_of_zero_sized_elements_allocates_only_a_header :: proc(t: ^testing.T) {
+	stub_reset()
+	list := roc_list_from_slice([]Roc_View_Halt{{}, {}, {}})
+	testing.expect_value(t, list.length, 3)
+	testing.expect_value(t, list.capacity_or_alloc_ptr, 6)
+	testing.expect_value(t, g_blocks[rawptr(uintptr(list.elements) - 8)], Block{8, 8})
+	roc_list_decref(list)
+	testing.expect_value(t, g_deallocs, g_allocs)
+	testing.expect_value(t, g_bad_frees, 0)
+}
+
+@(test)
+test_single_tag_with_several_payloads_is_its_payload_struct :: proc(t: ^testing.T) {
+	pair := Roc_View_Pair {
+		pair = {_0 = 7, _1 = 300},
+	}
+	testing.expect_value(t, size_of(Roc_View_Pair), 8)
+	testing.expect_value(t, (^u32)(&pair)^, 300)
+	testing.expect_value(t, byte_at(&pair, 4), 7)
+}

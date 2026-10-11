@@ -172,8 +172,8 @@ union_key = |table, type_id, tu| "tu:${tu.name}:${table.tag_union_signature(tabl
 check_union : TypeTable, U64, TagUnionRepr -> {}
 check_union = |table, type_id, tu| {
     token = table.structural_token(type_id)
-    if tu.tags.len() < 2 {
-        crash "OdinGlue: ${token} has one tag; single-tag unions are not supported"
+    if tu.tags.is_empty() {
+        crash "OdinGlue: ${token} has no tags; empty tag unions are not supported"
     }
     for tag in tu.tags {
         for payload_id in tag.payload {
@@ -615,9 +615,13 @@ one_struct = |table, plan, name, layout| {
 ## A union with no payloads is a bare enum. Any other union is a struct of a
 ## raw union of the payloads, padding, and the tag at its committed offset.
 ## Odin's own `union` is not used: it places and numbers its tag itself.
+## A single-tag union has no tag bytes, so it is only its payload.
 one_union : TypeTable, List(Named), Str, TagUnionRepr, AbiLayout -> Str
 one_union = |table, plan, name, tu, layout| {
     tags = layout.tag_layouts()
+    if layout.discriminant_size() == 0 {
+        return single_tag(table, plan, name, tu, layout)
+    }
     discriminant = discriminant_type(name, layout.discriminant_size())
 
     var $variants = ""
@@ -634,15 +638,9 @@ one_union = |table, plan, name, tu, layout| {
         $variants = $variants.concat("\t${tag.name} = ${U64.to_str($index)},\n")
 
         if abi.payload_size64 > 0 {
-            payload_type = match tag.payload {
-                [payload_id] => odin_type(table, plan, payload_id)
-                _ => {
-                    payload_name = tag_path(name, tag.name)
-                    $payload_structs = $payload_structs.concat(payload_struct(table, plan, payload_name, abi))
-                    payload_name
-                }
-            }
-            $fields = $fields.concat("\t${field_ident(tag.name)}: ${payload_type},\n")
+            payload = payload_type(table, plan, name, tag, abi)
+            $payload_structs = $payload_structs.concat(payload.structs)
+            $fields = $fields.concat("\t${field_ident(tag.name)}: ${payload.spelling},\n")
             $payload_size = U64.max($payload_size, abi.payload_size64)
             $payload_align = U64.max($payload_align, abi.payload_alignment64)
         }
@@ -670,6 +668,46 @@ one_union = |table, plan, name, tu, layout| {
         .concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n")
         .concat("#assert(offset_of(${name}, tag) == ${U64.to_str(tag_offset)})\n\n")
 }
+
+## A single-tag union as a struct of its payload, or as an empty struct when
+## it has none.
+single_tag : TypeTable, List(Named), Str, TagUnionRepr, AbiLayout -> Str
+single_tag = |table, plan, name, tu, layout| {
+    abi = tag_at(layout.tag_layouts(), 0)
+    var $payload_structs = ""
+    definition = match tu.tags {
+        [tag] => {
+            if abi.name != tag.name {
+                crash "OdinGlue: ${name} tag ${tag.name} does not match its committed layout"
+            }
+            if abi.payload_size64 == 0 {
+                "${name} :: struct {}\n\n"
+            } else {
+                payload = payload_type(table, plan, name, tag, abi)
+                $payload_structs = payload.structs
+                "${name} :: struct {\n\t${field_ident(tag.name)}: ${payload.spelling},\n}\n\n"
+            }
+        }
+        _ => crash "OdinGlue: ${name} has no tag bytes but more than one tag"
+    }
+
+    $payload_structs
+        .concat(definition)
+        .concat("#assert(size_of(${name}) == ${U64.to_str(layout.size64)})\n")
+        .concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n\n")
+}
+
+## The Odin spelling of a tag's payload. A multi-field payload also needs its
+## payload struct emitted.
+payload_type : TypeTable, List(Named), Str, { name : Str, payload : List(U64) }, AbiTagLayout -> { spelling : Str, structs : Str }
+payload_type = |table, plan, union_name, tag, abi|
+    match tag.payload {
+        [payload_id] => { spelling: odin_type(table, plan, payload_id), structs: "" }
+        _ => {
+            payload_name = tag_path(union_name, tag.name)
+            { spelling: payload_name, structs: payload_struct(table, plan, payload_name, abi) }
+        }
+    }
 
 ## A multi-field payload as a struct, its fields in the committed order.
 payload_struct : TypeTable, List(Named), Str, AbiTagLayout -> Str
@@ -808,11 +846,14 @@ refcount_helpers = |table, plan, reached| {
         .concat(proc_group("roc_list_from_slice", $list_builders))
 }
 
+## Releases every refcounted field except a box. The host cannot free a box,
+## so it keeps the reference and hands it back to the Roc app. release_proc
+## refuses such a record anywhere deeper, where nothing would keep the box.
 record_decref : TypeTable, List(Named), Named -> Str
 record_decref = |table, plan, entry| {
     var $out = "${decref_name(entry.name)} :: proc(value: ${entry.name}) {\n"
     for field in table.layout(entry.type_id).record_fields() {
-        if !field.is_padding {
+        if !field.is_padding and !is_box(table, field.type_id) {
             match release_proc(table, plan, field.type_id) {
                 Release(release) => {
                     $out = $out.concat("\t${release}(value.${field.name})\n")
@@ -832,7 +873,9 @@ release_proc = |table, plan, type_id|
         RocStr => Release("roc_str_decref")
         RocList(elem_id) => Release("roc_list_decref_${ident(odin_type(table, plan, elem_id))}")
         RocRecord(rec) =>
-            if table.layout(type_id).contains_refcounted {
+            if rec.fields.any(|field| is_box(table, field.type_id)) {
+                crash "OdinGlue: ${table.structural_token(type_id)} holds a Box inside another value; only a record the host receives directly may hold a Box"
+            } else if table.layout(type_id).contains_refcounted {
                 Release(decref_name(canonical(plan, rec.name)))
             } else {
                 Flat
@@ -845,6 +888,13 @@ release_proc = |table, plan, type_id|
                 Flat
             }
         _ => Flat
+    }
+
+is_box : TypeTable, U64 -> Bool
+is_box = |table, type_id|
+    match table.get(type_id) {
+        RocBox(_) => Bool.True
+        _ => Bool.False
     }
 
 decref_name : Str -> Str

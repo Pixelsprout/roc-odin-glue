@@ -123,29 +123,41 @@ roc_list_decref_elements :: proc(list: Roc_List($T), release: proc(value: T)) {
 
 Roc_View :: struct {
 	ray: Roc_View_Ray,
+	spawn: Roc_View_Spawn,
 	items: Roc_List(Roc_View_Items),
+	quits: Roc_List(Roc_View_Quits),
 	body: Roc_View_Body,
 	nested: Roc_View_Nested,
+	pair: Roc_View_Pair,
 	shape: Roc_View_Shape,
+	halt: Roc_View_Quits,
 	mode: Roc_View_Mode,
 	phase: Roc_Phase,
 }
 
-#assert(size_of(Roc_View) == 96)
+#assert(size_of(Roc_View) == 136)
 #assert(align_of(Roc_View) == 8)
 #assert(offset_of(Roc_View, ray) == 0)
 #assert(size_of(type_of(Roc_View{}.ray)) == 24)
-#assert(offset_of(Roc_View, items) == 24)
+#assert(offset_of(Roc_View, spawn) == 24)
+#assert(size_of(type_of(Roc_View{}.spawn)) == 8)
+#assert(offset_of(Roc_View, items) == 32)
 #assert(size_of(type_of(Roc_View{}.items)) == 24)
-#assert(offset_of(Roc_View, body) == 48)
+#assert(offset_of(Roc_View, quits) == 56)
+#assert(size_of(type_of(Roc_View{}.quits)) == 24)
+#assert(offset_of(Roc_View, body) == 80)
 #assert(size_of(type_of(Roc_View{}.body)) == 12)
-#assert(offset_of(Roc_View, nested) == 60)
+#assert(offset_of(Roc_View, nested) == 92)
 #assert(size_of(type_of(Roc_View{}.nested)) == 12)
-#assert(offset_of(Roc_View, shape) == 72)
+#assert(offset_of(Roc_View, pair) == 104)
+#assert(size_of(type_of(Roc_View{}.pair)) == 8)
+#assert(offset_of(Roc_View, shape) == 112)
 #assert(size_of(type_of(Roc_View{}.shape)) == 16)
-#assert(offset_of(Roc_View, mode) == 88)
+#assert(offset_of(Roc_View, halt) == 128)
+#assert(size_of(type_of(Roc_View{}.halt)) == 0)
+#assert(offset_of(Roc_View, mode) == 128)
 #assert(size_of(type_of(Roc_View{}.mode)) == 1)
-#assert(offset_of(Roc_View, phase) == 89)
+#assert(offset_of(Roc_View, phase) == 129)
 #assert(size_of(type_of(Roc_View{}.phase)) == 1)
 
 Roc_View_Ray_Hit :: struct {
@@ -181,6 +193,13 @@ Roc_View_Ray :: struct {
 #assert(align_of(Roc_View_Ray) == 8)
 #assert(offset_of(Roc_View_Ray, tag) == 16)
 
+Roc_View_Spawn :: struct {
+	spawn: u64,
+}
+
+#assert(size_of(Roc_View_Spawn) == 8)
+#assert(align_of(Roc_View_Spawn) == 8)
+
 Roc_View_Items_Tag :: enum u8 {
 	Coin = 0,
 	Key = 1,
@@ -198,6 +217,11 @@ Roc_View_Items :: struct {
 #assert(size_of(Roc_View_Items) == 8)
 #assert(align_of(Roc_View_Items) == 4)
 #assert(offset_of(Roc_View_Items, tag) == 4)
+
+Roc_View_Quits :: struct {}
+
+#assert(size_of(Roc_View_Quits) == 0)
+#assert(align_of(Roc_View_Quits) == 1)
 
 Roc_View_Body :: struct {
 	kind: Roc_View_Body_Kind,
@@ -266,6 +290,25 @@ Roc_View_Nested_Pick :: struct {
 #assert(align_of(Roc_View_Nested_Pick) == 4)
 #assert(offset_of(Roc_View_Nested_Pick, tag) == 4)
 
+Roc_View_Pair_Pair :: struct {
+	_1: u32,
+	_0: u8,
+}
+
+#assert(size_of(Roc_View_Pair_Pair) == 8)
+#assert(align_of(Roc_View_Pair_Pair) == 4)
+#assert(offset_of(Roc_View_Pair_Pair, _1) == 0)
+#assert(size_of(type_of(Roc_View_Pair_Pair{}._1)) == 4)
+#assert(offset_of(Roc_View_Pair_Pair, _0) == 4)
+#assert(size_of(type_of(Roc_View_Pair_Pair{}._0)) == 1)
+
+Roc_View_Pair :: struct {
+	pair: Roc_View_Pair_Pair,
+}
+
+#assert(size_of(Roc_View_Pair) == 8)
+#assert(align_of(Roc_View_Pair) == 4)
+
 Roc_View_Shape_Tag :: enum u8 {
 	Cube = 0,
 	Sphere = 1,
@@ -300,6 +343,7 @@ Roc_View_Shape_Cube :: struct {
 #assert(offset_of(Roc_View_Shape_Cube, z) == 8)
 #assert(size_of(type_of(Roc_View_Shape_Cube{}.z)) == 4)
 
+Roc_View_Halt :: Roc_View_Quits
 Roc_View_Mode :: enum u8 {
 	Idle = 0,
 	Jump = 1,
@@ -320,6 +364,7 @@ Roc_Phase :: enum u8 {
 
 roc_view_decref :: proc(value: Roc_View) {
 	roc_list_decref_roc_view_items(value.items)
+	roc_list_decref_roc_view_quits(value.quits)
 }
 
 roc_list_decref_roc_view_items :: proc(list: Roc_List(Roc_View_Items)) {
@@ -330,16 +375,26 @@ roc_list_from_slice_roc_view_items :: proc(elems: []Roc_View_Items) -> Roc_List(
 	return roc_list_from_slice_with(elems, false)
 }
 
+roc_list_decref_roc_view_quits :: proc(list: Roc_List(Roc_View_Quits)) {
+	roc_list_decref_flat(list)
+}
+
+roc_list_from_slice_roc_view_quits :: proc(elems: []Roc_View_Quits) -> Roc_List(Roc_View_Quits) {
+	return roc_list_from_slice_with(elems, false)
+}
+
 roc_decref :: proc {
 	roc_view_decref,
 }
 
 roc_list_decref :: proc {
 	roc_list_decref_roc_view_items,
+	roc_list_decref_roc_view_quits,
 }
 
 roc_list_from_slice :: proc {
 	roc_list_from_slice_roc_view_items,
+	roc_list_from_slice_roc_view_quits,
 }
 
 // The Roc app defines these symbols at the final link.

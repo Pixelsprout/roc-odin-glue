@@ -1,7 +1,7 @@
 platform ""
     requires {} {
         [Model: model] for init : { seed : U64, meshes : List({ name : Str, id : U32 }) } -> model,
-        step : Model, { held : List(U16), pressed : List(U16), mouse : { dx : F32, dy : F32 } }, F32 -> Model,
+        step : Model, { held : List(U16), pressed : List(U16), mouse : { dx : F32, dy : F32 } }, F32 -> { model : Model, commands : List([Quit]) },
         view : Model -> { camera : { eye : { x : F32, y : F32, z : F32 }, target : { x : F32, y : F32, z : F32 }, fov_y : F32 }, draws : List({ id : U64, mesh : U32, pos : { x : F32, y : F32, z : F32 }, scale : { x : F32, y : F32, z : F32 }, yaw : F32, tint : { r : F32, g : F32, b : F32 } }) },
     }
     exposes []
@@ -32,8 +32,12 @@ Scene : { camera : Camera, draws : List({ id : U64, mesh : U32, pos : Vec3, scal
 init_for_host : Config -> Box(Model)
 init_for_host = |config| Box.box(init(config))
 
-step_for_host : Box(Model), Input, F32 -> Box(Model)
-step_for_host = |boxed, input, dt| Box.box(step(Box.unbox(boxed), input, dt))
+# The host keeps the model box and drops the rest of the record.
+step_for_host : Box(Model), Input, F32 -> { model : Box(Model), commands : List([Quit]) }
+step_for_host = |boxed, input, dt| {
+    stepped = step(Box.unbox(boxed), input, dt)
+    { model: Box.box(stepped.model), commands: stepped.commands }
+}
 
 view_for_host : Box(Model) -> { camera : { eye : { x : F32, y : F32, z : F32 }, target : { x : F32, y : F32, z : F32 }, fov_y : F32 }, draws : List({ id : U64, mesh : U32, pos : { x : F32, y : F32, z : F32 }, scale : { x : F32, y : F32, z : F32 }, yaw : F32, tint : { r : F32, g : F32, b : F32 } }) }
 view_for_host = |boxed| view(Box.unbox(boxed))

@@ -201,3 +201,17 @@ test_seamless_str_slice_frees_the_backing_allocation :: proc(t: ^testing.T) {
 	roc_decref(slice)
 	expect_clean(t)
 }
+
+@(test)
+test_record_decref_leaves_a_box_field_to_the_host :: proc(t: ^testing.T) {
+	stub_reset()
+	// A box's refcount is the int just before the pointer.
+	box_header := [2]int{1, 0}
+	stepped := Roc_Step {
+		model    = &box_header[1],
+		commands = roc_list_from_slice([]Roc_Step_Commands{{}}),
+	}
+	roc_decref(stepped)
+	testing.expect_value(t, box_header[0], 1)
+	expect_clean(t)
+}
