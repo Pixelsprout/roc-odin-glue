@@ -9,8 +9,9 @@
 ##
 ## Set `odin_package` below before first use.
 ##
-## Supports: records, lists, `Str`, `Box` as an opaque pointer, and the scalar
-## builtins. Anything else crashes and names the type, by design. See README.
+## Supports: records, lists, non-recursive tag unions, `Str`, `Box` as an
+## opaque pointer, and the scalar builtins. Anything else crashes and names the
+## type, by design. See README.
 ##
 app [make_glue] { pf: platform glue }
 
@@ -21,12 +22,14 @@ import pf.TypeTable exposing [TypeTable]
 import pf.RocName exposing [RocName]
 import pf.AbiLayout exposing [AbiLayout]
 import pf.ProvidesEntry exposing [ProvidesEntry]
+import pf.TagUnionRepr exposing [TagUnionRepr]
+import pf.AbiTagLayout exposing [AbiTagLayout]
 
 ## One name the host will use, the structural key it stands for, and the type
 ## id that carries its layout.
 ##
-## `key` is the compiler's own name for the record's shape, so two paths that
-## reach the same record share a key and the second becomes an alias.
+## `key` is the compiler's own name for the record's or union's shape, so two
+## paths that reach the same shape share a key and the second becomes an alias.
 Named : { key : Str, name : Str, type_id : U64 }
 
 make_glue : List(Types) -> Try(List(File), Str)
@@ -109,7 +112,99 @@ walk = |table, plan, type_id, name| {
             }
             $plan
         }
+        RocTagUnion(tu) => {
+            check_union(table, type_id, tu)
+            union_name = if is_nominal(tu) { "Roc_${RocName.from_str(tu.name).to_pascal_clean()}" } else { name }
+            if has_name(plan, union_name) {
+                return plan
+            }
+
+            var $plan = plan.append({
+                key: union_key(table, type_id, tu),
+                name: union_name,
+                type_id,
+            })
+            for tag in tu.tags {
+                tag_name = tag_path(union_name, tag.name)
+                $plan = match tag.payload {
+                    [payload_id] => walk(table, $plan, payload_id, tag_name)
+                    _ => {
+                        var $p = $plan
+                        var $index = 0
+                        for payload_id in tag.payload {
+                            $p = walk(table, $p, payload_id, "${tag_name}_${U64.to_str($index)}")
+                            $index = $index + 1
+                        }
+                        $p
+                    }
+                }
+            }
+            $plan
+        }
         _ => plan
+    }
+}
+
+# The name of a tag's payload type, or of a multi-field payload struct.
+tag_path : Str, Str -> Str
+tag_path = |union_name, tag_name| "${union_name}_${RocName.from_str(tag_name).to_pascal_clean()}"
+
+## The compiler names an anonymous union by joining its tag names with "Or".
+## Any other name was written in the platform.
+is_nominal : TagUnionRepr -> Bool
+is_nominal = |tu| {
+    if tu.name == "" {
+        return Bool.False
+    }
+
+    var $joined = ""
+    for tag in tu.tags {
+        $joined = if $joined == "" { tag.name } else { "${$joined}Or${tag.name}" }
+    }
+    tu.name != $joined
+}
+
+union_key : TypeTable, U64, TagUnionRepr -> Str
+union_key = |table, type_id, tu| "tu:${tu.name}:${table.tag_union_signature(table.layout(type_id), tu)}"
+
+## Crashes on the unions this spec cannot emit. A recursive union is checked
+## first, because its boxed payload also makes it refcounted.
+check_union : TypeTable, U64, TagUnionRepr -> {}
+check_union = |table, type_id, tu| {
+    token = table.structural_token(type_id)
+    if tu.tags.len() < 2 {
+        crash "OdinGlue: ${token} has one tag; single-tag unions are not supported"
+    }
+    for tag in tu.tags {
+        for payload_id in tag.payload {
+            if refers_to(table, [], payload_id, type_id) {
+                crash "OdinGlue: ${token} is recursive; recursive tag unions are not supported"
+            }
+        }
+    }
+    if table.layout(type_id).contains_refcounted {
+        crash "OdinGlue: ${token} has a payload that needs refcounting (List, Str or Box); refcounted union payloads are not supported"
+    }
+    {}
+}
+
+## Whether `target` is reachable from `type_id`, through boxes too.
+refers_to : TypeTable, List(U64), U64, U64 -> Bool
+refers_to = |table, seen, type_id, target| {
+    if type_id == target {
+        return Bool.True
+    }
+    if seen.contains(type_id) {
+        return Bool.False
+    }
+
+    next_seen = seen.append(type_id)
+    match table.get(type_id) {
+        RocBox(inner_id) => refers_to(table, next_seen, inner_id, target)
+        RocList(elem_id) => refers_to(table, next_seen, elem_id, target)
+        RocRecord(rec) => rec.fields.any(|field| refers_to(table, next_seen, field.type_id, target))
+        RocTagUnion(inner) => inner.tags.any(|tag| tag.payload.any(|payload_id| refers_to(table, next_seen, payload_id, target)))
+        _ => Bool.False
     }
 }
 
@@ -136,7 +231,7 @@ canonical = |plan, key| {
     }
 
     if $name == "" {
-        crash "OdinGlue: no name was planned for record ${key}"
+        crash "OdinGlue: no name was planned for ${key}"
     }
 
     $name
@@ -145,7 +240,6 @@ canonical = |plan, key| {
 # ---------------------------------------------------------------- type names
 
 # Maps a type id to its Odin spelling.
-# TODO: handle other types such as Tagged Unions
 odin_type : TypeTable, List(Named), U64 -> Str
 odin_type = |table, plan, type_id| {
     match table.get(type_id) {
@@ -168,6 +262,7 @@ odin_type = |table, plan, type_id| {
         RocBox(_) => "rawptr"
         RocList(elem_id) => "Roc_List(${odin_type(table, plan, elem_id)})"
         RocRecord(rec) => canonical(plan, rec.name)
+        RocTagUnion(tu) => canonical(plan, union_key(table, type_id, tu))
         _other => crash "OdinGlue: no Odin spelling for ${table.structural_token(type_id)} (type id ${U64.to_str(type_id)})"
     }
 }
@@ -229,6 +324,14 @@ reach = |table, seen, type_id| {
             for field in rec.fields {
                 if !field.is_padding {
                     $seen = reach(table, $seen, field.type_id)
+                }
+            }
+            $seen
+        }
+        RocTagUnion(tu) => {
+            for tag in tu.tags {
+                for payload_id in tag.payload {
+                    $seen = reach(table, $seen, payload_id)
                 }
             }
             $seen
@@ -467,7 +570,12 @@ structs = |table, plan| {
             $out = $out.concat("${entry.name} :: ${canonical(plan, entry.key)}\n")
         } else {
             $defined = $defined.append(entry.key)
-            $out = $out.concat(one_struct(table, plan, entry.name, TypeTable.layout(table, entry.type_id)))
+            $out = $out.concat(
+                match table.get(entry.type_id) {
+                    RocTagUnion(tu) => one_union(table, plan, entry.name, tu, table.layout(entry.type_id))
+                    _ => one_struct(table, plan, entry.name, table.layout(entry.type_id))
+                },
+            )
         }
     }
     $out.concat("\n")
@@ -503,6 +611,129 @@ one_struct = |table, plan, name, layout| {
 
     $out.concat("\n")
 }
+
+## A union with no payloads is a bare enum. Any other union is a struct of a
+## raw union of the payloads, padding, and the tag at its committed offset.
+## Odin's own `union` is not used: it places and numbers its tag itself.
+one_union : TypeTable, List(Named), Str, TagUnionRepr, AbiLayout -> Str
+one_union = |table, plan, name, tu, layout| {
+    tags = layout.tag_layouts()
+    discriminant = discriminant_type(name, layout.discriminant_size())
+
+    var $variants = ""
+    var $payload_structs = ""
+    var $fields = ""
+    var $payload_size = 0
+    var $payload_align = 1
+    var $index = 0
+    for tag in tu.tags {
+        abi = tag_at(tags, $index)
+        if abi.name != tag.name or abi.discriminant != $index {
+            crash "OdinGlue: ${name} tag ${tag.name} does not match its committed layout"
+        }
+        $variants = $variants.concat("\t${tag.name} = ${U64.to_str($index)},\n")
+
+        if abi.payload_size64 > 0 {
+            payload_type = match tag.payload {
+                [payload_id] => odin_type(table, plan, payload_id)
+                _ => {
+                    payload_name = tag_path(name, tag.name)
+                    $payload_structs = $payload_structs.concat(payload_struct(table, plan, payload_name, abi))
+                    payload_name
+                }
+            }
+            $fields = $fields.concat("\t${field_ident(tag.name)}: ${payload_type},\n")
+            $payload_size = U64.max($payload_size, abi.payload_size64)
+            $payload_align = U64.max($payload_align, abi.payload_alignment64)
+        }
+        $index = $index + 1
+    }
+
+    if !layout.tag_union_has_payload() {
+        return "${name} :: enum ${discriminant} {\n${$variants}}\n\n"
+            .concat("#assert(size_of(${name}) == ${U64.to_str(layout.size64)})\n")
+            .concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n\n")
+    }
+
+    union_size = round_up($payload_size, $payload_align)
+    tag_offset = layout.discriminant_offset(Pointer64)
+    if tag_offset < union_size {
+        crash "OdinGlue: ${name} has its tag at ${U64.to_str(tag_offset)}, inside its ${U64.to_str(union_size)}-byte payload"
+    }
+    pad = if tag_offset > union_size { "\t_pad0: [${U64.to_str(tag_offset - union_size)}]u8,\n" } else { "" }
+
+    $payload_structs
+        .concat("${name}_Tag :: enum ${discriminant} {\n${$variants}}\n\n")
+        .concat("${name}_Payload :: struct #raw_union {\n${$fields}}\n\n")
+        .concat("${name} :: struct {\n\tpayload: ${name}_Payload,\n${pad}\ttag: ${name}_Tag,\n}\n\n")
+        .concat("#assert(size_of(${name}) == ${U64.to_str(layout.size64)})\n")
+        .concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n")
+        .concat("#assert(offset_of(${name}, tag) == ${U64.to_str(tag_offset)})\n\n")
+}
+
+## A multi-field payload as a struct, its fields in the committed order.
+payload_struct : TypeTable, List(Named), Str, AbiTagLayout -> Str
+payload_struct = |table, plan, name, abi| {
+    var $out = "${name} :: struct {\n"
+    var $pad = 0
+    for field in abi.payload_fields {
+        if field.is_padding {
+            $out = $out.concat("\t_pad${U64.to_str($pad)}: [${U64.to_str(field.size64)}]u8,\n")
+            $pad = $pad + 1
+        } else {
+            $out = $out.concat("\t${field.name}: ${odin_type(table, plan, field.type_id)},\n")
+        }
+    }
+    $out = $out
+        .concat("}\n\n")
+        .concat("#assert(size_of(${name}) == ${U64.to_str(abi.payload_size64)})\n")
+        .concat("#assert(align_of(${name}) == ${U64.to_str(abi.payload_alignment64)})\n")
+    for field in abi.payload_fields {
+        if !field.is_padding {
+            $out = $out
+                .concat("#assert(offset_of(${name}, ${field.name}) == ${U64.to_str(field.offset64)})\n")
+                .concat("#assert(size_of(type_of(${name}{}.${field.name})) == ${U64.to_str(field.size64)})\n")
+        }
+    }
+    $out.concat("\n")
+}
+
+tag_at : List(AbiTagLayout), U64 -> AbiTagLayout
+tag_at = |tags, index|
+    match tags.get(index) {
+        Ok(tag) => tag
+        Err(_) => crash "OdinGlue: no committed layout for tag ${U64.to_str(index)}"
+    }
+
+discriminant_type : Str, U64 -> Str
+discriminant_type = |name, size|
+    match size {
+        1 => "u8"
+        2 => "u16"
+        4 => "u32"
+        8 => "u64"
+        _ => crash "OdinGlue: ${name} has a ${U64.to_str(size)}-byte tag"
+    }
+
+round_up : U64, U64 -> U64
+round_up = |size, align| ((size + align - 1) // align) * align
+
+## A tag name as a lower snake case field name, with a trailing underscore
+## when it would be an Odin keyword.
+field_ident : Str -> Str
+field_ident = |tag_name| {
+    snake = RocName.from_str(tag_name).to_lower_snake()
+    if odin_keywords.contains(snake) { "${snake}_" } else { snake }
+}
+
+odin_keywords : List(Str)
+odin_keywords = [
+    "asm", "auto_cast", "bit_field", "bit_set", "break", "case", "cast", "context", "continue",
+    "defer", "distinct", "do", "dynamic", "else", "enum", "fallthrough", "for", "foreign", "if",
+    "import", "in", "map", "matrix", "not_in", "or_break", "or_continue", "or_else", "or_return",
+    "package", "proc", "return", "struct", "switch", "transmute", "typeid", "union", "using",
+    "when", "where",
+]
 
 # ---------------------------------------------------------- refcount helpers
 
@@ -607,6 +838,12 @@ release_proc = |table, plan, type_id|
                 Flat
             }
         RocBox(_) => crash "OdinGlue: no decref for a Box inside a value; only the Roc app knows its payload"
+        RocTagUnion(_) =>
+            if table.layout(type_id).contains_refcounted {
+                crash "OdinGlue: no decref for ${table.structural_token(type_id)}; refcounted union payloads are not supported"
+            } else {
+                Flat
+            }
         _ => Flat
     }
 

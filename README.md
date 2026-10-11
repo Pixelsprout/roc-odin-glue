@@ -26,8 +26,8 @@ roc glue ./OdinGlue.roc ./src path/to/platform/main.roc
 ```
 
 Try it against the bundled examples, which need no host and no build target.
-`example/check.sh` regenerates both, compares them with the committed files,
-compiles them and runs the helper tests:
+`example/check.sh` regenerates them, compares them with the committed files,
+compiles them and runs the helper and layout tests:
 
 ```sh
 ./example/check.sh
@@ -114,6 +114,8 @@ survives adding a field to the record. Regenerate and rebuild; change nothing.
 | `Box(T)` | `rawptr`; the payload is not emitted |
 | `{}` | a proc with no result; only as a return type |
 | records | a generated `struct`, in committed field order |
+| tag unions with no payloads | a generated `enum` |
+| other non-recursive tag unions | a generated `struct` holding a payload `#raw_union` and the tag |
 
 **Everything else crashes**, naming the type and its id:
 
@@ -127,11 +129,50 @@ work rather than a missing match arm:
 
 - **`Dec`** — `i128` scaled by 10<sup>18</sup>, size 16, **align 16**. Needs a
   wrapper struct so it is not mistaken for an integer.
-- **Tag unions** — need a `struct #raw_union` payload plus an explicit
-  discriminant at `discriminant_offset`. Do *not* map them to Odin's `union`,
-  which owns its own tag placement and values. Discriminants are assigned
-  alphabetically, and multi-argument payloads are reordered by alignment.
-- SIMD vectors, recursive types.
+- **Recursive tag unions**: the compiler boxes the recursive payload, so the
+  union needs refcounting.
+- **Tag unions with a refcounted payload**: a `List`, `Str` or `Box` inside a
+  payload needs a decref that switches on the tag.
+- Single-tag unions, SIMD vectors, other recursive types.
+
+### Tag unions
+
+OdinGlue names a union by its path, as it names a record. A union declared
+with `:=` in the platform keeps its own name (`Phase := [...]` becomes
+`Roc_Phase`).
+For `shape : [Sphere(F32), Cube({ x : F32, y : F32, z : F32 })]` in the record
+`roc_view` returns:
+
+```odin
+Roc_View_Shape_Tag :: enum u8 {
+	Cube = 0,
+	Sphere = 1,
+}
+
+Roc_View_Shape_Payload :: struct #raw_union {
+	cube: Roc_View_Shape_Cube,
+	sphere: f32,
+}
+
+Roc_View_Shape :: struct {
+	payload: Roc_View_Shape_Payload,
+	tag: Roc_View_Shape_Tag,
+}
+
+#assert(size_of(Roc_View_Shape) == 16)
+#assert(align_of(Roc_View_Shape) == 4)
+#assert(offset_of(Roc_View_Shape, tag) == 12)
+```
+
+OdinGlue does not use Odin's own `union`, because that type places and numbers
+its tag itself. The compiler numbers the tags alphabetically. The tag width is
+the committed tag size. A tag with several payload values gets a payload struct
+(`Roc_View_Ray_Hit`), with its fields `_0`, `_1`, … in the committed order,
+which sorts them by alignment. A payload field whose name is an Odin keyword
+gets a trailing underscore (`switch_`). A union with no payloads is a bare
+`enum`. OdinGlue emits only the 64-bit layout, with no accessors or
+constructors.
+The full file is in [`example/unions/expected/`](example/unions/expected/).
 
 ### Refcount helpers
 
