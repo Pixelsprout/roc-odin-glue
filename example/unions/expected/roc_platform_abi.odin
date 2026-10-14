@@ -121,11 +121,54 @@ roc_list_decref_elements :: proc(list: Roc_List($T), release: proc(value: T)) {
 	roc_free(data, align_of(T), true)
 }
 
+Roc_Str :: struct {
+	bytes:                 [^]u8,
+	capacity_or_alloc_ptr: uint,
+	length:                uint,
+}
+
+#assert(size_of(Roc_Str) == 24)
+#assert(align_of(Roc_Str) == 8)
+// The inline length byte is the last byte, so the layout assumes little-endian.
+#assert(ODIN_ENDIAN == .Little)
+
+// A string shorter than Roc_Str lives inline. Its last byte holds the
+// length with the top bit set.
+roc_str_from_slice :: proc(s: string) -> Roc_Str {
+	out: Roc_Str
+	n := len(s)
+	if n < size_of(Roc_Str) {
+		raw := ([^]u8)(&out)
+		copy(raw[:n], s)
+		raw[size_of(Roc_Str) - 1] = u8(n) | 0x80
+		return out
+	}
+	data := ([^]u8)(roc_alloc_refcounted(uint(n), 1, false, 0))
+	copy(data[:n], s)
+	return {bytes = data, capacity_or_alloc_ptr = uint(n) << 1, length = uint(n)}
+}
+
+roc_str_decref :: proc(s: Roc_Str) {
+	if int(s.length) < 0 {
+		return
+	}
+	data := rawptr(s.bytes)
+	if s.capacity_or_alloc_ptr & 1 != 0 {
+		data = rawptr(uintptr(s.capacity_or_alloc_ptr &~ 1))
+	}
+	if roc_release(data) {
+		roc_free(data, 1, false)
+	}
+}
+
 Roc_View :: struct {
 	ray: Roc_View_Ray,
 	spawn: Roc_View_Spawn,
 	items: Roc_List(Roc_View_Items),
+	label: Roc_View_Label,
+	orders: Roc_List(Roc_View_Orders),
 	quits: Roc_List(Roc_View_Quits),
+	say: Roc_View_Say,
 	body: Roc_View_Body,
 	nested: Roc_View_Nested,
 	pair: Roc_View_Pair,
@@ -135,7 +178,7 @@ Roc_View :: struct {
 	phase: Roc_Phase,
 }
 
-#assert(size_of(Roc_View) == 136)
+#assert(size_of(Roc_View) == 224)
 #assert(align_of(Roc_View) == 8)
 #assert(offset_of(Roc_View, ray) == 0)
 #assert(size_of(type_of(Roc_View{}.ray)) == 24)
@@ -143,21 +186,27 @@ Roc_View :: struct {
 #assert(size_of(type_of(Roc_View{}.spawn)) == 8)
 #assert(offset_of(Roc_View, items) == 32)
 #assert(size_of(type_of(Roc_View{}.items)) == 24)
-#assert(offset_of(Roc_View, quits) == 56)
+#assert(offset_of(Roc_View, label) == 56)
+#assert(size_of(type_of(Roc_View{}.label)) == 40)
+#assert(offset_of(Roc_View, orders) == 96)
+#assert(size_of(type_of(Roc_View{}.orders)) == 24)
+#assert(offset_of(Roc_View, quits) == 120)
 #assert(size_of(type_of(Roc_View{}.quits)) == 24)
-#assert(offset_of(Roc_View, body) == 80)
+#assert(offset_of(Roc_View, say) == 144)
+#assert(size_of(type_of(Roc_View{}.say)) == 24)
+#assert(offset_of(Roc_View, body) == 168)
 #assert(size_of(type_of(Roc_View{}.body)) == 12)
-#assert(offset_of(Roc_View, nested) == 92)
+#assert(offset_of(Roc_View, nested) == 180)
 #assert(size_of(type_of(Roc_View{}.nested)) == 12)
-#assert(offset_of(Roc_View, pair) == 104)
+#assert(offset_of(Roc_View, pair) == 192)
 #assert(size_of(type_of(Roc_View{}.pair)) == 8)
-#assert(offset_of(Roc_View, shape) == 112)
+#assert(offset_of(Roc_View, shape) == 200)
 #assert(size_of(type_of(Roc_View{}.shape)) == 16)
-#assert(offset_of(Roc_View, halt) == 128)
+#assert(offset_of(Roc_View, halt) == 216)
 #assert(size_of(type_of(Roc_View{}.halt)) == 0)
-#assert(offset_of(Roc_View, mode) == 128)
+#assert(offset_of(Roc_View, mode) == 216)
 #assert(size_of(type_of(Roc_View{}.mode)) == 1)
-#assert(offset_of(Roc_View, phase) == 129)
+#assert(offset_of(Roc_View, phase) == 217)
 #assert(size_of(type_of(Roc_View{}.phase)) == 1)
 
 Roc_View_Ray_Hit :: struct {
@@ -218,10 +267,77 @@ Roc_View_Items :: struct {
 #assert(align_of(Roc_View_Items) == 4)
 #assert(offset_of(Roc_View_Items, tag) == 4)
 
+Roc_View_Label_Named :: struct {
+	_0: Roc_Str,
+	_1: u8,
+}
+
+#assert(size_of(Roc_View_Label_Named) == 32)
+#assert(align_of(Roc_View_Label_Named) == 8)
+#assert(offset_of(Roc_View_Label_Named, _0) == 0)
+#assert(size_of(type_of(Roc_View_Label_Named{}._0)) == 24)
+#assert(offset_of(Roc_View_Label_Named, _1) == 24)
+#assert(size_of(type_of(Roc_View_Label_Named{}._1)) == 1)
+
+Roc_View_Label_Tag :: enum u8 {
+	Named = 0,
+	Unnamed = 1,
+}
+
+Roc_View_Label_Payload :: struct #raw_union {
+	named: Roc_View_Label_Named,
+}
+
+Roc_View_Label :: struct {
+	payload: Roc_View_Label_Payload,
+	tag: Roc_View_Label_Tag,
+}
+
+#assert(size_of(Roc_View_Label) == 40)
+#assert(align_of(Roc_View_Label) == 8)
+#assert(offset_of(Roc_View_Label, tag) == 32)
+
+Roc_View_Orders_Tag :: enum u8 {
+	Load = 0,
+	Quit = 1,
+}
+
+Roc_View_Orders_Payload :: struct #raw_union {
+	load: Roc_View_Orders_Load,
+}
+
+Roc_View_Orders :: struct {
+	payload: Roc_View_Orders_Payload,
+	tag: Roc_View_Orders_Tag,
+}
+
+#assert(size_of(Roc_View_Orders) == 56)
+#assert(align_of(Roc_View_Orders) == 8)
+#assert(offset_of(Roc_View_Orders, tag) == 48)
+
+Roc_View_Orders_Load :: struct {
+	assets: Roc_List(Roc_Str),
+	pack: Roc_Str,
+}
+
+#assert(size_of(Roc_View_Orders_Load) == 48)
+#assert(align_of(Roc_View_Orders_Load) == 8)
+#assert(offset_of(Roc_View_Orders_Load, assets) == 0)
+#assert(size_of(type_of(Roc_View_Orders_Load{}.assets)) == 24)
+#assert(offset_of(Roc_View_Orders_Load, pack) == 24)
+#assert(size_of(type_of(Roc_View_Orders_Load{}.pack)) == 24)
+
 Roc_View_Quits :: struct {}
 
 #assert(size_of(Roc_View_Quits) == 0)
 #assert(align_of(Roc_View_Quits) == 1)
+
+Roc_View_Say :: struct {
+	say: Roc_Str,
+}
+
+#assert(size_of(Roc_View_Say) == 24)
+#assert(align_of(Roc_View_Say) == 8)
 
 Roc_View_Body :: struct {
 	kind: Roc_View_Body_Kind,
@@ -364,7 +480,33 @@ Roc_Phase :: enum u8 {
 
 roc_view_decref :: proc(value: Roc_View) {
 	roc_list_decref_roc_view_items(value.items)
+	roc_view_label_decref(value.label)
+	roc_list_decref_roc_view_orders(value.orders)
 	roc_list_decref_roc_view_quits(value.quits)
+	roc_view_say_decref(value.say)
+}
+
+roc_view_label_decref :: proc(value: Roc_View_Label) {
+	#partial switch value.tag {
+	case .Named:
+		roc_str_decref(value.payload.named._0)
+	}
+}
+
+roc_view_orders_decref :: proc(value: Roc_View_Orders) {
+	#partial switch value.tag {
+	case .Load:
+		roc_view_orders_load_decref(value.payload.load)
+	}
+}
+
+roc_view_orders_load_decref :: proc(value: Roc_View_Orders_Load) {
+	roc_list_decref_roc_str(value.assets)
+	roc_str_decref(value.pack)
+}
+
+roc_view_say_decref :: proc(value: Roc_View_Say) {
+	roc_str_decref(value.say)
 }
 
 roc_list_decref_roc_view_items :: proc(list: Roc_List(Roc_View_Items)) {
@@ -373,6 +515,22 @@ roc_list_decref_roc_view_items :: proc(list: Roc_List(Roc_View_Items)) {
 
 roc_list_from_slice_roc_view_items :: proc(elems: []Roc_View_Items) -> Roc_List(Roc_View_Items) {
 	return roc_list_from_slice_with(elems, false)
+}
+
+roc_list_decref_roc_view_orders :: proc(list: Roc_List(Roc_View_Orders)) {
+	roc_list_decref_elements(list, roc_view_orders_decref)
+}
+
+roc_list_from_slice_roc_view_orders :: proc(elems: []Roc_View_Orders) -> Roc_List(Roc_View_Orders) {
+	return roc_list_from_slice_with(elems, true)
+}
+
+roc_list_decref_roc_str :: proc(list: Roc_List(Roc_Str)) {
+	roc_list_decref_elements(list, roc_str_decref)
+}
+
+roc_list_from_slice_roc_str :: proc(elems: []Roc_Str) -> Roc_List(Roc_Str) {
+	return roc_list_from_slice_with(elems, true)
 }
 
 roc_list_decref_roc_view_quits :: proc(list: Roc_List(Roc_View_Quits)) {
@@ -384,16 +542,25 @@ roc_list_from_slice_roc_view_quits :: proc(elems: []Roc_View_Quits) -> Roc_List(
 }
 
 roc_decref :: proc {
+	roc_str_decref,
 	roc_view_decref,
+	roc_view_label_decref,
+	roc_view_orders_decref,
+	roc_view_orders_load_decref,
+	roc_view_say_decref,
 }
 
 roc_list_decref :: proc {
 	roc_list_decref_roc_view_items,
+	roc_list_decref_roc_view_orders,
+	roc_list_decref_roc_str,
 	roc_list_decref_roc_view_quits,
 }
 
 roc_list_from_slice :: proc {
 	roc_list_from_slice_roc_view_items,
+	roc_list_from_slice_roc_view_orders,
+	roc_list_from_slice_roc_str,
 	roc_list_from_slice_roc_view_quits,
 }
 

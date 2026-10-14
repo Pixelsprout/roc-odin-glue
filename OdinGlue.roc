@@ -168,7 +168,7 @@ union_key : TypeTable, U64, TagUnionRepr -> Str
 union_key = |table, type_id, tu| "tu:${tu.name}:${table.tag_union_signature(table.layout(type_id), tu)}"
 
 ## Crashes on the unions this spec cannot emit. A recursive union is checked
-## first, because its boxed payload also makes it refcounted.
+## first, so it gets its own message and not the Box one.
 check_union : TypeTable, U64, TagUnionRepr -> {}
 check_union = |table, type_id, tu| {
     token = table.structural_token(type_id)
@@ -182,10 +182,27 @@ check_union = |table, type_id, tu| {
             }
         }
     }
-    if table.layout(type_id).contains_refcounted {
-        crash "OdinGlue: ${token} has a payload that needs refcounting (List, Str or Box); refcounted union payloads are not supported"
+    if tu.tags.any(|tag| tag.payload.any(|payload_id| holds_box(table, [], payload_id))) {
+        crash "OdinGlue: ${token} holds a Box in a payload; only the Roc app knows its layout, so the host cannot free it"
     }
     {}
+}
+
+## Whether a value of `type_id` holds a Box anywhere inside it.
+holds_box : TypeTable, List(U64), U64 -> Bool
+holds_box = |table, seen, type_id| {
+    if seen.contains(type_id) {
+        return Bool.False
+    }
+
+    next_seen = seen.append(type_id)
+    match table.get(type_id) {
+        RocBox(_) => Bool.True
+        RocList(elem_id) => holds_box(table, next_seen, elem_id)
+        RocRecord(rec) => rec.fields.any(|field| holds_box(table, next_seen, field.type_id))
+        RocTagUnion(inner) => inner.tags.any(|tag| tag.payload.any(|payload_id| holds_box(table, next_seen, payload_id)))
+        _ => Bool.False
+    }
 }
 
 ## Whether `target` is reachable from `type_id`, through boxes too.
@@ -799,7 +816,12 @@ refcount_helpers = |table, plan, reached| {
         if !$defined.contains(entry.key) {
             $defined = $defined.append(entry.key)
             if table.layout(entry.type_id).contains_refcounted {
-                $out = $out.concat(record_decref(table, plan, entry))
+                $out = $out.concat(
+                    match table.get(entry.type_id) {
+                        RocTagUnion(tu) => union_decref(table, plan, entry, tu)
+                        _ => record_decref(table, plan, entry)
+                    },
+                )
                 $decrefs = $decrefs.append(decref_name(entry.name))
             }
         }
@@ -865,6 +887,56 @@ record_decref = |table, plan, entry| {
     $out.concat("}\n\n")
 }
 
+## Releases the payload of the live tag. A tag whose payload holds nothing
+## refcounted has no case. A single-tag union has no tag to switch on.
+union_decref : TypeTable, List(Named), Named, TagUnionRepr -> Str
+union_decref = |table, plan, entry, tu| {
+    layout = table.layout(entry.type_id)
+    tags = layout.tag_layouts()
+    head = "${decref_name(entry.name)} :: proc(value: ${entry.name}) {\n"
+    if layout.discriminant_size() == 0 {
+        body = match tu.tags {
+            [tag] => payload_releases(table, plan, "value.${field_ident(tag.name)}", tag, tag_at(tags, 0), "\t")
+            _ => crash "OdinGlue: ${entry.name} has no tag bytes but more than one tag"
+        }
+        return head.concat(body).concat("}\n\n")
+    }
+
+    var $cases = ""
+    var $index = 0
+    for tag in tu.tags {
+        releases = payload_releases(table, plan, "value.payload.${field_ident(tag.name)}", tag, tag_at(tags, $index), "\t\t")
+        if releases != "" {
+            $cases = $cases.concat("\tcase .${tag.name}:\n${releases}")
+        }
+        $index = $index + 1
+    }
+    head.concat("\t#partial switch value.tag {\n${$cases}\t}\n}\n\n")
+}
+
+## One release line for each refcounted value in a tag's payload.
+payload_releases : TypeTable, List(Named), Str, { name : Str, payload : List(U64) }, AbiTagLayout, Str -> Str
+payload_releases = |table, plan, path, tag, abi, indent|
+    match tag.payload {
+        [payload_id] =>
+            match release_proc(table, plan, payload_id) {
+                Release(release) => "${indent}${release}(${path})\n"
+                Flat => ""
+            }
+        _ => {
+            var $out = ""
+            for field in abi.payload_fields {
+                if !field.is_padding {
+                    $out = match release_proc(table, plan, field.type_id) {
+                        Release(release) => $out.concat("${indent}${release}(${path}.${field.name})\n")
+                        Flat => $out
+                    }
+                }
+            }
+            $out
+        }
+    }
+
 ## The helper that releases one value of a type, or Flat when the type holds
 ## nothing refcounted.
 release_proc : TypeTable, List(Named), U64 -> [Release(Str), Flat]
@@ -881,9 +953,9 @@ release_proc = |table, plan, type_id|
                 Flat
             }
         RocBox(_) => crash "OdinGlue: no decref for a Box inside a value; only the Roc app knows its payload"
-        RocTagUnion(_) =>
+        RocTagUnion(tu) =>
             if table.layout(type_id).contains_refcounted {
-                crash "OdinGlue: no decref for ${table.structural_token(type_id)}; refcounted union payloads are not supported"
+                Release(decref_name(canonical(plan, union_key(table, type_id, tu))))
             } else {
                 Flat
             }

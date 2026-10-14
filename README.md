@@ -117,6 +117,7 @@ survives adding a field to the record. Regenerate and rebuild; change nothing.
 | tag unions with no payloads | a generated `enum` |
 | single-tag unions | a generated `struct` holding only the payload, or `struct {}` with none |
 | other non-recursive tag unions | a generated `struct` holding a payload `#raw_union` and the tag |
+| a `List` or `Str` in a union payload | a `roc_decref` overload that switches on the tag |
 
 **Everything else crashes**, naming the type and its id:
 
@@ -130,10 +131,9 @@ work rather than a missing match arm:
 
 - **`Dec`** — `i128` scaled by 10<sup>18</sup>, size 16, **align 16**. Needs a
   wrapper struct so it is not mistaken for an integer.
-- **Recursive tag unions**: the compiler boxes the recursive payload, so the
-  union needs refcounting.
-- **Tag unions with a refcounted payload**: a `List`, `Str` or `Box` inside a
-  payload needs a decref that switches on the tag.
+- **Recursive tag unions**: the compiler boxes the recursive payload, and the
+  host cannot free a box.
+- **A `Box` in a tag union payload**: only the Roc app knows its layout.
 - Empty tag unions, SIMD vectors, other recursive types.
 
 ### Tag unions
@@ -187,7 +187,7 @@ Roc and free the values Roc returns. Each helper allocates and frees through
 |---|---|
 | `roc_str_from_slice(s)` | A `Roc_Str` with refcount 1. Short strings allocate nothing. |
 | `roc_list_from_slice(elems)` | A `Roc_List` with refcount 1 and the right header for its element type. An empty slice allocates nothing. |
-| `roc_decref(value)` | Drops one reference to a `Roc_Str` or to each refcounted field of a record, except a box. |
+| `roc_decref(value)` | Drops one reference to a `Roc_Str`, to each refcounted field of a record except a box, or to the refcounted payload of a union's live tag. |
 | `roc_list_decref(list)` | Drops one reference to a list. On the last one, it also drops each element's references. |
 | `roc_incref_box(box)` | Adds one reference to a box. |
 
