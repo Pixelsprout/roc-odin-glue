@@ -50,3 +50,12 @@ test_single_tag_union_frees_its_payload :: proc(t: ^testing.T) {
 	roc_decref(Roc_View_Say{say = roc_str_from_slice(LONG_NAME)})
 	expect_all_freed(t)
 }
+
+@(test)
+test_union_with_its_tag_in_payload_padding_frees_its_payload :: proc(t: ^testing.T) {
+	stub_reset()
+	tucked := Roc_View_Tucked{tag = .Ref}
+	tucked.payload.ref = roc_str_from_slice(LONG_NAME)
+	roc_decref(tucked)
+	expect_all_freed(t)
+}

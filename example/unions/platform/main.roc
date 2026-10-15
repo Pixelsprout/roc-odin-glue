@@ -1,6 +1,6 @@
 platform ""
     requires {} {
-        view : U64 -> { mode : [Idle, Walk, Jump], shape : [Sphere(F32), Cube({ x : F32, y : F32, z : F32 })], ray : [Miss, Hit(U8, F64, U16)], nested : [Quit, Pick([Small(U8), Big(U32)])], body : { mass : F32, kind : [Rigid, Soft(F32)] }, items : List([Coin(U32), Key]), phase : Phase, halt : [Quit], spawn : [Spawn(U64)], quits : List([Quit]), pair : [Pair(U8, U32)], orders : List([Quit, Load({ pack : Str, assets : List(Str) })]), label : [Unnamed, Named(Str, U8)], say : [Say(Str)] },
+        view : U64 -> { mode : [Idle, Walk, Jump], shape : [Sphere(F32), Cube({ x : F32, y : F32, z : F32 })], ray : [Miss, Hit(U8, F64, U16)], nested : [Quit, Pick([Small(U8), Big(U32)])], body : { mass : F32, kind : [Rigid, Soft(F32)] }, items : List([Coin(U32), Key]), phase : Phase, halt : [Quit], spawn : [Spawn(U64)], quits : List([Quit]), pair : [Pair(U8, U32)], orders : List([Quit, Load({ pack : Str, assets : List(Str) })]), label : [Unnamed, Named(Str, U8)], say : [Say(Str)], tucked : [Ref(Str), Wide(F32, F32, F32, F32, F32, F32, F32)] },
     }
     exposes []
     packages { roc: "nightly-2026-09-27-a3ce7f1" }
@@ -26,6 +26,8 @@ View : {
     orders : List([Quit, Load({ pack : Str, assets : List(Str) })]),
     label : [Unnamed, Named(Str, U8)],
     say : [Say(Str)],
+    # Roc puts the tag at 28, after Wide but inside the 32 bytes Ref's alignment rounds to.
+    tucked : [Ref(Str), Wide(F32, F32, F32, F32, F32, F32, F32)],
 }
 
 view_for_host : U64 -> View

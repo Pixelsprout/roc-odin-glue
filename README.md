@@ -173,8 +173,12 @@ which sorts them by alignment. A payload field whose name is an Odin keyword
 gets a trailing underscore (`switch_`). A union with no payloads is a bare
 `enum`. A single-tag union has no tag bytes, so it is only its payload:
 `[Spawn(U64)]` is a struct with one `spawn: u64` field, and `[Quit]` is
-`struct {}`, size 0. OdinGlue emits only the 64-bit layout, with no
-accessors or constructors.
+`struct {}`, size 0. The compiler can put the tag in the padding a more
+aligned payload adds after the largest one, such as byte 28 of
+`[Ref(Str), Wide(F32, F32, F32, F32, F32, F32, F32)]`. The struct is then a
+`#raw_union` of the payload and an anonymous struct that holds the tag at
+that offset, so `value.tag` still works. OdinGlue emits only the 64-bit
+layout, with no accessors or constructors.
 The full file is in [`example/unions/expected/`](example/unions/expected/).
 
 ### Refcount helpers

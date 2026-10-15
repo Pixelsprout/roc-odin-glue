@@ -169,6 +169,7 @@ Roc_View :: struct {
 	orders: Roc_List(Roc_View_Orders),
 	quits: Roc_List(Roc_View_Quits),
 	say: Roc_View_Say,
+	tucked: Roc_View_Tucked,
 	body: Roc_View_Body,
 	nested: Roc_View_Nested,
 	pair: Roc_View_Pair,
@@ -178,7 +179,7 @@ Roc_View :: struct {
 	phase: Roc_Phase,
 }
 
-#assert(size_of(Roc_View) == 224)
+#assert(size_of(Roc_View) == 256)
 #assert(align_of(Roc_View) == 8)
 #assert(offset_of(Roc_View, ray) == 0)
 #assert(size_of(type_of(Roc_View{}.ray)) == 24)
@@ -194,19 +195,21 @@ Roc_View :: struct {
 #assert(size_of(type_of(Roc_View{}.quits)) == 24)
 #assert(offset_of(Roc_View, say) == 144)
 #assert(size_of(type_of(Roc_View{}.say)) == 24)
-#assert(offset_of(Roc_View, body) == 168)
+#assert(offset_of(Roc_View, tucked) == 168)
+#assert(size_of(type_of(Roc_View{}.tucked)) == 32)
+#assert(offset_of(Roc_View, body) == 200)
 #assert(size_of(type_of(Roc_View{}.body)) == 12)
-#assert(offset_of(Roc_View, nested) == 180)
+#assert(offset_of(Roc_View, nested) == 212)
 #assert(size_of(type_of(Roc_View{}.nested)) == 12)
-#assert(offset_of(Roc_View, pair) == 192)
+#assert(offset_of(Roc_View, pair) == 224)
 #assert(size_of(type_of(Roc_View{}.pair)) == 8)
-#assert(offset_of(Roc_View, shape) == 200)
+#assert(offset_of(Roc_View, shape) == 232)
 #assert(size_of(type_of(Roc_View{}.shape)) == 16)
-#assert(offset_of(Roc_View, halt) == 216)
+#assert(offset_of(Roc_View, halt) == 248)
 #assert(size_of(type_of(Roc_View{}.halt)) == 0)
-#assert(offset_of(Roc_View, mode) == 216)
+#assert(offset_of(Roc_View, mode) == 248)
 #assert(size_of(type_of(Roc_View{}.mode)) == 1)
-#assert(offset_of(Roc_View, phase) == 217)
+#assert(offset_of(Roc_View, phase) == 249)
 #assert(size_of(type_of(Roc_View{}.phase)) == 1)
 
 Roc_View_Ray_Hit :: struct {
@@ -338,6 +341,55 @@ Roc_View_Say :: struct {
 
 #assert(size_of(Roc_View_Say) == 24)
 #assert(align_of(Roc_View_Say) == 8)
+
+Roc_View_Tucked_Wide :: struct {
+	_0: f32,
+	_1: f32,
+	_2: f32,
+	_3: f32,
+	_4: f32,
+	_5: f32,
+	_6: f32,
+}
+
+#assert(size_of(Roc_View_Tucked_Wide) == 28)
+#assert(align_of(Roc_View_Tucked_Wide) == 4)
+#assert(offset_of(Roc_View_Tucked_Wide, _0) == 0)
+#assert(size_of(type_of(Roc_View_Tucked_Wide{}._0)) == 4)
+#assert(offset_of(Roc_View_Tucked_Wide, _1) == 4)
+#assert(size_of(type_of(Roc_View_Tucked_Wide{}._1)) == 4)
+#assert(offset_of(Roc_View_Tucked_Wide, _2) == 8)
+#assert(size_of(type_of(Roc_View_Tucked_Wide{}._2)) == 4)
+#assert(offset_of(Roc_View_Tucked_Wide, _3) == 12)
+#assert(size_of(type_of(Roc_View_Tucked_Wide{}._3)) == 4)
+#assert(offset_of(Roc_View_Tucked_Wide, _4) == 16)
+#assert(size_of(type_of(Roc_View_Tucked_Wide{}._4)) == 4)
+#assert(offset_of(Roc_View_Tucked_Wide, _5) == 20)
+#assert(size_of(type_of(Roc_View_Tucked_Wide{}._5)) == 4)
+#assert(offset_of(Roc_View_Tucked_Wide, _6) == 24)
+#assert(size_of(type_of(Roc_View_Tucked_Wide{}._6)) == 4)
+
+Roc_View_Tucked_Tag :: enum u8 {
+	Ref = 0,
+	Wide = 1,
+}
+
+Roc_View_Tucked_Payload :: struct #raw_union {
+	ref: Roc_Str,
+	wide: Roc_View_Tucked_Wide,
+}
+
+Roc_View_Tucked :: struct #raw_union {
+	payload: Roc_View_Tucked_Payload,
+	using _: struct {
+		_: [28]u8,
+		tag: Roc_View_Tucked_Tag,
+	},
+}
+
+#assert(size_of(Roc_View_Tucked) == 32)
+#assert(align_of(Roc_View_Tucked) == 8)
+#assert(offset_of(Roc_View_Tucked, tag) == 28)
 
 Roc_View_Body :: struct {
 	kind: Roc_View_Body_Kind,
@@ -484,6 +536,7 @@ roc_view_decref :: proc(value: Roc_View) {
 	roc_list_decref_roc_view_orders(value.orders)
 	roc_list_decref_roc_view_quits(value.quits)
 	roc_view_say_decref(value.say)
+	roc_view_tucked_decref(value.tucked)
 }
 
 roc_view_label_decref :: proc(value: Roc_View_Label) {
@@ -507,6 +560,13 @@ roc_view_orders_load_decref :: proc(value: Roc_View_Orders_Load) {
 
 roc_view_say_decref :: proc(value: Roc_View_Say) {
 	roc_str_decref(value.say)
+}
+
+roc_view_tucked_decref :: proc(value: Roc_View_Tucked) {
+	#partial switch value.tag {
+	case .Ref:
+		roc_str_decref(value.payload.ref)
+	}
 }
 
 roc_list_decref_roc_view_items :: proc(list: Roc_List(Roc_View_Items)) {
@@ -548,6 +608,7 @@ roc_decref :: proc {
 	roc_view_orders_decref,
 	roc_view_orders_load_decref,
 	roc_view_say_decref,
+	roc_view_tucked_decref,
 }
 
 roc_list_decref :: proc {

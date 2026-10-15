@@ -129,3 +129,17 @@ test_single_tag_with_several_payloads_is_its_payload_struct :: proc(t: ^testing.
 	testing.expect_value(t, (^u32)(&pair)^, 300)
 	testing.expect_value(t, byte_at(&pair, 4), 7)
 }
+
+@(test)
+test_tag_can_sit_in_the_padding_of_a_wider_aligned_payload :: proc(t: ^testing.T) {
+	testing.expect_value(t, size_of(Roc_View_Tucked), 32)
+	testing.expect_value(t, offset_of(Roc_View_Tucked, tag), 28)
+
+	tucked := Roc_View_Tucked {
+		tag = .Wide,
+	}
+	tucked.payload.wide = {_6 = 7}
+	testing.expect_value(t, ([^]f32)(&tucked)[6], 7)
+	testing.expect_value(t, byte_at(&tucked, 28), 1)
+	testing.expect_value(t, tucked.tag, Roc_View_Tucked_Tag.Wide)
+}

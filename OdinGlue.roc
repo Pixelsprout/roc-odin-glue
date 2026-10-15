@@ -672,15 +672,23 @@ one_union = |table, plan, name, tu, layout| {
 
     union_size = round_up($payload_size, $payload_align)
     tag_offset = layout.discriminant_offset(Pointer64)
-    if tag_offset < union_size {
-        crash "OdinGlue: ${name} has its tag at ${U64.to_str(tag_offset)}, inside its ${U64.to_str(union_size)}-byte payload"
+    if tag_offset < $payload_size {
+        crash "OdinGlue: ${name} has its tag at ${U64.to_str(tag_offset)}, inside a ${U64.to_str($payload_size)}-byte payload"
     }
-    pad = if tag_offset > union_size { "\t_pad0: [${U64.to_str(tag_offset - union_size)}]u8,\n" } else { "" }
+    # Roc can put the tag after the largest payload but inside the padding a
+    # more aligned payload adds. Odin's raw union keeps that padding, so the
+    # tag then overlays the payload in a raw union of its own.
+    definition = if tag_offset < union_size {
+        "${name} :: struct #raw_union {\n\tpayload: ${name}_Payload,\n\tusing _: struct {\n\t\t_: [${U64.to_str(tag_offset)}]u8,\n\t\ttag: ${name}_Tag,\n\t},\n}\n\n"
+    } else {
+        pad = if tag_offset > union_size { "\t_pad0: [${U64.to_str(tag_offset - union_size)}]u8,\n" } else { "" }
+        "${name} :: struct {\n\tpayload: ${name}_Payload,\n${pad}\ttag: ${name}_Tag,\n}\n\n"
+    }
 
     $payload_structs
         .concat("${name}_Tag :: enum ${discriminant} {\n${$variants}}\n\n")
         .concat("${name}_Payload :: struct #raw_union {\n${$fields}}\n\n")
-        .concat("${name} :: struct {\n\tpayload: ${name}_Payload,\n${pad}\ttag: ${name}_Tag,\n}\n\n")
+        .concat(definition)
         .concat("#assert(size_of(${name}) == ${U64.to_str(layout.size64)})\n")
         .concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n")
         .concat("#assert(offset_of(${name}, tag) == ${U64.to_str(tag_offset)})\n\n")
