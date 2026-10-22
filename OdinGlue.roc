@@ -168,9 +168,9 @@ is_nominal = |tu| {
 union_key : TypeTable, U64, TagUnionRepr -> Str
 union_key = |table, type_id, tu| "tu:${tu.name}:${table.tag_union_signature(table.layout(type_id), tu)}"
 
-## Crashes on the unions this spec cannot emit. Recursion through a Box is
-## checked first, so it gets its own message and not the Box one. Recursion
-## through a List is stored inline and passes.
+## Crashes on the unions this spec cannot emit. It checks recursion through a
+## Box before `holds_box`, so that recursion gets its own message and not the
+## `holds_box` one. Recursion through a List is stored inline and passes.
 check_union : TypeTable, U64, TagUnionRepr -> {}
 check_union = |table, type_id, tu| {
     token = table.structural_token(type_id)
