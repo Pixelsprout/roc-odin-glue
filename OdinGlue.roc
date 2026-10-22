@@ -814,8 +814,12 @@ refcount_helpers = |table, plan, reached| {
 
     for type_id in reached {
         match table.get(type_id) {
+            # A nominal type can reach Str under its own type id, so add the
+            # overload once.
             RocStr => {
-                $decrefs = $decrefs.append("roc_str_decref")
+                if !$decrefs.contains("roc_str_decref") {
+                    $decrefs = $decrefs.append("roc_str_decref")
+                }
             }
             _ => {}
         }

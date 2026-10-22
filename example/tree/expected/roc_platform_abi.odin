@@ -256,4 +256,5 @@ roc_list_from_slice :: proc {
 @(default_calling_convention = "c")
 foreign {
 	roc_view :: proc(arg0: u64) -> Roc_List(Roc_Element) ---
+	roc_title :: proc(arg0: u64) -> Roc_Str ---
 }
