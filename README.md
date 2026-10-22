@@ -10,7 +10,7 @@ host, the `RocList` header, the extern signatures to link against, and
 compile-time assertions pinning every committed offset, size and alignment.
 
 > **Status: works, and narrow.** Verified against
-> `nightly-2026-09-27-a3ce7f1` on `arm64mac`. Roc is pre-alpha and the glue
+> `nightly-2026-10-11-7d256b9` on `arm64mac`. Roc is pre-alpha and the glue
 > platform API moves; treat everything here as a snapshot. It handles the types
 > a small platform needs and crashes loudly on the rest — see
 > [Supported types](#supported-types).
@@ -116,7 +116,8 @@ survives adding a field to the record. Regenerate and rebuild; change nothing.
 | records | a generated `struct`, in committed field order |
 | tag unions with no payloads | a generated `enum` |
 | single-tag unions | a generated `struct` holding only the payload, or `struct {}` with none |
-| other non-recursive tag unions | a generated `struct` holding a payload `#raw_union` and the tag |
+| other tag unions | a generated `struct` holding a payload `#raw_union` and the tag |
+| a nominal union that refers to itself through a `List` | the same `struct`, with mutually recursive release procs |
 | a `List` or `Str` in a union payload | a `roc_decref` overload that switches on the tag |
 
 **Everything else crashes**, naming the type and its id:
@@ -131,8 +132,11 @@ work rather than a missing match arm:
 
 - **`Dec`** — `i128` scaled by 10<sup>18</sup>, size 16, **align 16**. Needs a
   wrapper struct so it is not mistaken for an integer.
-- **Recursive tag unions**: the compiler boxes the recursive payload, and the
-  host cannot free a box.
+- **Direct recursion through a Box**, such as
+  `Tree := [Leaf(U64), Fork(Tree, Tree)]`: the compiler boxes the recursive
+  payload, and the host cannot free a box. The crash names the type:
+  `OdinGlue: Tree (tu:Tree) refers to itself through a Box`. Recursion
+  through a `List` works; see [Recursive tag unions](#recursive-tag-unions).
 - **A `Box` in a tag union payload**: only the Roc app knows its layout.
 - Empty tag unions, SIMD vectors, other recursive types.
 
@@ -180,6 +184,36 @@ aligned payload adds after the largest one, such as byte 28 of
 that offset, so `value.tag` still works. OdinGlue emits only the 64-bit
 layout, with no accessors or constructors.
 The full file is in [`example/unions/expected/`](example/unions/expected/).
+
+### Recursive tag unions
+
+A nominal union that refers to itself through a `List` is stored inline, with
+no compiler-inserted Box. For
+`Element := [Box(BoxConfig, List(Element)), Text(Text)]`, with an 8-byte
+`BoxConfig` and a 32-byte `Text`, `Roc_Element` is 40 bytes, align 8, with
+its tag at byte 32. The `Box` payload is a struct with the children list at 0
+and the config at 24, in the committed order. Only a nominal union can refer
+to itself, so the union keeps its own name.
+
+```odin
+Roc_Element_Box :: struct {
+	_1: Roc_List(Roc_Element),
+	_0: Roc_Element_Box_0,
+}
+
+roc_element_decref :: proc(value: Roc_Element) {
+	#partial switch value.tag {
+	case .Box:
+		roc_list_decref_roc_element(value.payload.box._1)
+	case .Text:
+		roc_element_text_decref(value.payload.text)
+	}
+}
+```
+
+`roc_element_decref` and `roc_list_decref_roc_element` call each other, so
+dropping the roots list frees the whole tree. The full file is in
+[`example/tree/expected/`](example/tree/expected/).
 
 ### Refcount helpers
 

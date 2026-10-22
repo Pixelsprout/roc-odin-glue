@@ -9,21 +9,22 @@
 ##
 ## Set `odin_package` below before first use.
 ##
-## Supports: records, lists, non-recursive tag unions, `Str`, `Box` as an
-## opaque pointer, and the scalar builtins. Anything else crashes and names the
+## Supports: records, lists, tag unions, a nominal union that refers to
+## itself through a `List`, `Str`, `Box` as an opaque pointer, and the scalar
+## builtins. Anything else crashes and names the
 ## type, by design. See README.
 ##
 app [make_glue] { pf: platform glue }
 
-import pf.Types exposing [Types]
-import pf.File exposing [File]
-import pf.GlueInput exposing [GlueInput]
-import pf.TypeTable exposing [TypeTable]
-import pf.RocName exposing [RocName]
-import pf.AbiLayout exposing [AbiLayout]
-import pf.ProvidesEntry exposing [ProvidesEntry]
-import pf.TagUnionRepr exposing [TagUnionRepr]
-import pf.AbiTagLayout exposing [AbiTagLayout]
+import pf.Types
+import pf.File
+import pf.GlueInput
+import pf.TypeTable
+import pf.RocName
+import pf.AbiLayout
+import pf.ProvidesEntry
+import pf.TagUnionRepr
+import pf.AbiTagLayout
 
 ## One name the host will use, the structural key it stands for, and the type
 ## id that carries its layout.
@@ -167,8 +168,9 @@ is_nominal = |tu| {
 union_key : TypeTable, U64, TagUnionRepr -> Str
 union_key = |table, type_id, tu| "tu:${tu.name}:${table.tag_union_signature(table.layout(type_id), tu)}"
 
-## Crashes on the unions this spec cannot emit. A recursive union is checked
-## first, so it gets its own message and not the Box one.
+## Crashes on the unions this spec cannot emit. It checks recursion through a
+## Box before `holds_box`, so that recursion gets its own message and not the
+## `holds_box` one. Recursion through a List is stored inline and passes.
 check_union : TypeTable, U64, TagUnionRepr -> {}
 check_union = |table, type_id, tu| {
     token = table.structural_token(type_id)
@@ -177,8 +179,8 @@ check_union = |table, type_id, tu| {
     }
     for tag in tu.tags {
         for payload_id in tag.payload {
-            if refers_to(table, [], payload_id, type_id) {
-                crash "OdinGlue: ${token} is recursive; recursive tag unions are not supported"
+            if refers_through_box(table, [], payload_id, type_id, Bool.False) {
+                crash "OdinGlue: ${tu.name} (${token}) refers to itself through a Box; only recursion through a List is supported, because the host cannot free a Box"
             }
         }
     }
@@ -205,11 +207,11 @@ holds_box = |table, seen, type_id| {
     }
 }
 
-## Whether `target` is reachable from `type_id`, through boxes too.
-refers_to : TypeTable, List(U64), U64, U64 -> Bool
-refers_to = |table, seen, type_id, target| {
+## Whether `target` is reachable from `type_id` by a path that passes a Box.
+refers_through_box : TypeTable, List(U64), U64, U64, Bool -> Bool
+refers_through_box = |table, seen, type_id, target, boxed| {
     if type_id == target {
-        return Bool.True
+        return boxed
     }
     if seen.contains(type_id) {
         return Bool.False
@@ -217,10 +219,10 @@ refers_to = |table, seen, type_id, target| {
 
     next_seen = seen.append(type_id)
     match table.get(type_id) {
-        RocBox(inner_id) => refers_to(table, next_seen, inner_id, target)
-        RocList(elem_id) => refers_to(table, next_seen, elem_id, target)
-        RocRecord(rec) => rec.fields.any(|field| refers_to(table, next_seen, field.type_id, target))
-        RocTagUnion(inner) => inner.tags.any(|tag| tag.payload.any(|payload_id| refers_to(table, next_seen, payload_id, target)))
+        RocBox(inner_id) => refers_through_box(table, next_seen, inner_id, target, Bool.True)
+        RocList(elem_id) => refers_through_box(table, next_seen, elem_id, target, boxed)
+        RocRecord(rec) => rec.fields.any(|field| refers_through_box(table, next_seen, field.type_id, target, boxed))
+        RocTagUnion(inner) => inner.tags.any(|tag| tag.payload.any(|payload_id| refers_through_box(table, next_seen, payload_id, target, boxed)))
         _ => Bool.False
     }
 }
@@ -812,8 +814,12 @@ refcount_helpers = |table, plan, reached| {
 
     for type_id in reached {
         match table.get(type_id) {
+            # A nominal type can reach Str under its own type id, so add the
+            # overload once.
             RocStr => {
-                $decrefs = $decrefs.append("roc_str_decref")
+                if !$decrefs.contains("roc_str_decref") {
+                    $decrefs = $decrefs.append("roc_str_decref")
+                }
             }
             _ => {}
         }
