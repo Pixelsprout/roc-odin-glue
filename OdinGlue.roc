@@ -22,6 +22,7 @@ import pf.GlueInput
 import pf.TypeTable
 import pf.RocName
 import pf.AbiLayout
+import pf.AbiFieldLayout
 import pf.ProvidesEntry
 import pf.TagUnionRepr
 import pf.AbiTagLayout
@@ -301,12 +302,41 @@ file_header =
             \\// Do not edit by hand; regenerate instead:
             \\//   roc glue ./OdinGlue.roc <out-dir> <platform>/main.roc
             \\
-            \\// Every offset below is the 64-bit layout. This spec emits one pointer
-            \\// width, so the host must be a 64-bit target.
-            \\#assert(size_of(uintptr) == 8)
+            \\// Each layout value below is written for both pointer widths. Roc sizes
+            \\// its refcounts and lengths by the pointer width, so uint must match it.
+            \\#assert(size_of(uintptr) == 8 || size_of(uintptr) == 4)
+            \\#assert(size_of(uint) == size_of(uintptr))
+            \\
+            \\@(private = "file")
+            \\ROC_POINTER_64 :: size_of(uintptr) == 8
             \\
             \\
         )
+
+## One layout value at each pointer width.
+PerWidth : { ptr32 : U64, ptr64 : U64 }
+
+## A layout value as an Odin constant: the number when both widths agree,
+## otherwise a `when` that picks the value for the target's pointer width.
+width_value : PerWidth -> Str
+width_value = |{ ptr32, ptr64 }|
+    if ptr32 == ptr64 {
+        U64.to_str(ptr64)
+    } else {
+        "(${U64.to_str(ptr64)} when ROC_POINTER_64 else ${U64.to_str(ptr32)})"
+    }
+
+layout_size : AbiLayout -> Str
+layout_size = |layout| width_value({ ptr32: layout.size32, ptr64: layout.size64 })
+
+layout_alignment : AbiLayout -> Str
+layout_alignment = |layout| width_value({ ptr32: layout.alignment32, ptr64: layout.alignment64 })
+
+field_offset : AbiFieldLayout -> Str
+field_offset = |field| width_value({ ptr32: field.offset32, ptr64: field.offset64 })
+
+field_size : AbiFieldLayout -> Str
+field_size = |field| width_value({ ptr32: field.size32, ptr64: field.size64 })
 
 # ------------------------------------------------------------------ runtime
 
@@ -372,11 +402,11 @@ runtime = |table, reached| {
         layout = table.layout(type_id)
         match table.get(type_id) {
             RocList(_) => {
-                $list = list_runtime(layout.size64, layout.alignment64)
+                $list = list_runtime(layout)
                 $core = core_runtime
             }
             RocStr => {
-                $str = str_runtime(layout.size64, layout.alignment64)
+                $str = str_runtime(layout)
                 $core = core_runtime
             }
             RocBox(_) => {
@@ -452,8 +482,8 @@ core_runtime =
 
 ## The list header, with its size and alignment read off the type table rather
 ## than assumed, and the generic list helpers the per-type ones call.
-list_runtime : U64, U64 -> Str
-list_runtime = |size, align|
+list_runtime : AbiLayout -> Str
+list_runtime = |layout|
     \\Roc_List :: struct($T: typeid) {
     \\	elements:              [^]T,
     \\	length:                uint,
@@ -461,8 +491,8 @@ list_runtime = |size, align|
     \\}
     \\
     \\
-        .concat("#assert(size_of(Roc_List(u8)) == ${U64.to_str(size)})\n")
-        .concat("#assert(align_of(Roc_List(u8)) == ${U64.to_str(align)})\n\n")
+        .concat("#assert(size_of(Roc_List(u8)) == ${layout_size(layout)})\n")
+        .concat("#assert(align_of(Roc_List(u8)) == ${layout_alignment(layout)})\n\n")
         .concat(
             \\// A seamless slice tags the low bit of capacity_or_alloc_ptr and keeps
             \\// the data pointer of the allocation it shares there.
@@ -515,8 +545,8 @@ list_runtime = |size, align|
             \\
         )
 
-str_runtime : U64, U64 -> Str
-str_runtime = |size, align|
+str_runtime : AbiLayout -> Str
+str_runtime = |layout|
     \\Roc_Str :: struct {
     \\	bytes:                 [^]u8,
     \\	capacity_or_alloc_ptr: uint,
@@ -524,8 +554,8 @@ str_runtime = |size, align|
     \\}
     \\
     \\
-        .concat("#assert(size_of(Roc_Str) == ${U64.to_str(size)})\n")
-        .concat("#assert(align_of(Roc_Str) == ${U64.to_str(align)})\n")
+        .concat("#assert(size_of(Roc_Str) == ${layout_size(layout)})\n")
+        .concat("#assert(align_of(Roc_Str) == ${layout_alignment(layout)})\n")
         .concat("// The inline length byte is the last byte, so the layout assumes little-endian.\n#assert(ODIN_ENDIAN == .Little)\n\n")
         .concat(
             \\// A string shorter than Roc_Str lives inline. Its last byte holds the
@@ -610,7 +640,7 @@ one_struct = |table, plan, name, layout| {
     var $pad = 0
     for field in layout.record_fields() {
         if field.is_padding {
-            $out = $out.concat("\t_pad${U64.to_str($pad)}: [${U64.to_str(field.size64)}]u8,\n")
+            $out = $out.concat("\t_pad${U64.to_str($pad)}: [${field_size(field)}]u8,\n")
             $pad = $pad + 1
         } else {
             $out = $out.concat("\t${field.name}: ${odin_type(table, plan, field.type_id)},\n")
@@ -619,12 +649,12 @@ one_struct = |table, plan, name, layout| {
     $out = $out.concat("}\n\n")
 
     # Odin assertions
-    $out = $out.concat("#assert(size_of(${name}) == ${U64.to_str(layout.size64)})\n")
-    $out = $out.concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n")
+    $out = $out.concat("#assert(size_of(${name}) == ${layout_size(layout)})\n")
+    $out = $out.concat("#assert(align_of(${name}) == ${layout_alignment(layout)})\n")
     for field in layout.record_fields() {
         if !field.is_padding {
-            $out = $out.concat("#assert(offset_of(${name}, ${field.name}) == ${U64.to_str(field.offset64)})\n")
-            $out = $out.concat("#assert(size_of(type_of(${name}{}.${field.name})) == ${U64.to_str(field.size64)})\n")
+            $out = $out.concat("#assert(offset_of(${name}, ${field.name}) == ${field_offset(field)})\n")
+            $out = $out.concat("#assert(size_of(type_of(${name}{}.${field.name})) == ${field_size(field)})\n")
         }
     }
 
@@ -646,8 +676,8 @@ one_union = |table, plan, name, tu, layout| {
     var $variants = ""
     var $payload_structs = ""
     var $fields = ""
-    var $payload_size = 0
-    var $payload_align = 1
+    var $size = { ptr32: 0, ptr64: 0 }
+    var $align = { ptr32: 1, ptr64: 1 }
     var $index = 0
     for tag in tu.tags {
         abi = tag_at(tags, $index)
@@ -660,40 +690,68 @@ one_union = |table, plan, name, tu, layout| {
             payload = payload_type(table, plan, name, tag, abi)
             $payload_structs = $payload_structs.concat(payload.structs)
             $fields = $fields.concat("\t${field_ident(tag.name)}: ${payload.spelling},\n")
-            $payload_size = U64.max($payload_size, abi.payload_size64)
-            $payload_align = U64.max($payload_align, abi.payload_alignment64)
+            $size = {
+                ptr32: U64.max($size.ptr32, abi.payload_size32),
+                ptr64: U64.max($size.ptr64, abi.payload_size64),
+            }
+            $align = {
+                ptr32: U64.max($align.ptr32, abi.payload_alignment32),
+                ptr64: U64.max($align.ptr64, abi.payload_alignment64),
+            }
         }
         $index = $index + 1
     }
 
     if !layout.tag_union_has_payload() {
         return "${name} :: enum ${discriminant} {\n${$variants}}\n\n"
-            .concat("#assert(size_of(${name}) == ${U64.to_str(layout.size64)})\n")
-            .concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n\n")
+            .concat("#assert(size_of(${name}) == ${layout_size(layout)})\n")
+            .concat("#assert(align_of(${name}) == ${layout_alignment(layout)})\n\n")
     }
 
-    union_size = round_up($payload_size, $payload_align)
-    tag_offset = layout.discriminant_offset(Pointer64)
-    if tag_offset < $payload_size {
-        crash "OdinGlue: ${name} has its tag at ${U64.to_str(tag_offset)}, inside a ${U64.to_str($payload_size)}-byte payload"
-    }
+    offset = { ptr32: layout.discriminant_offset(Pointer32), ptr64: layout.discriminant_offset(Pointer64) }
+    place32 = tag_place(name, { size: $size.ptr32, align: $align.ptr32, offset: offset.ptr32 })
+    place64 = tag_place(name, { size: $size.ptr64, align: $align.ptr64, offset: offset.ptr64 })
+    tag_offset = width_value(offset)
     # Roc can put the tag after the largest payload but inside the padding a
     # more aligned payload adds. Odin's raw union keeps that padding, so the
-    # tag then overlays the payload in a raw union of its own.
-    definition = if tag_offset < union_size {
-        "${name} :: struct #raw_union {\n\tpayload: ${name}_Payload,\n\tusing _: struct {\n\t\t_: [${U64.to_str(tag_offset)}]u8,\n\t\ttag: ${name}_Tag,\n\t},\n}\n\n"
-    } else {
-        pad = if tag_offset > union_size { "\t_pad0: [${U64.to_str(tag_offset - union_size)}]u8,\n" } else { "" }
-        "${name} :: struct {\n\tpayload: ${name}_Payload,\n${pad}\ttag: ${name}_Tag,\n}\n\n"
+    # tag then overlays the payload in a raw union of its own. That form also
+    # fits a tag past the padding, so it serves when the two widths differ.
+    overlaid = "${name} :: struct #raw_union {\n\tpayload: ${name}_Payload,\n\tusing _: struct {\n\t\t_: [${tag_offset}]u8,\n\t\ttag: ${name}_Tag,\n\t},\n}\n\n"
+    definition = match place32 {
+        InPadding => overlaid
+        PastPadding(gap32) =>
+            match place64 {
+                InPadding => overlaid
+                PastPadding(gap64) => {
+                    pad = if gap32 > 0 or gap64 > 0 { "\t_pad0: [${width_value({ ptr32: gap32, ptr64: gap64 })}]u8,\n" } else { "" }
+                    "${name} :: struct {\n\tpayload: ${name}_Payload,\n${pad}\ttag: ${name}_Tag,\n}\n\n"
+                }
+            }
     }
 
     $payload_structs
         .concat("${name}_Tag :: enum ${discriminant} {\n${$variants}}\n\n")
         .concat("${name}_Payload :: struct #raw_union {\n${$fields}}\n\n")
         .concat(definition)
-        .concat("#assert(size_of(${name}) == ${U64.to_str(layout.size64)})\n")
-        .concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n")
-        .concat("#assert(offset_of(${name}, tag) == ${U64.to_str(tag_offset)})\n\n")
+        .concat("#assert(size_of(${name}) == ${layout_size(layout)})\n")
+        .concat("#assert(align_of(${name}) == ${layout_alignment(layout)})\n")
+        .concat("#assert(offset_of(${name}, tag) == ${tag_offset})\n\n")
+}
+
+## Where the tag sits at one pointer width, after a payload of `size` bytes
+## that Odin's raw union rounds up to `align`: inside that padding, or a gap
+## of bytes past it.
+tag_place : Str, { size : U64, align : U64, offset : U64 } -> [InPadding, PastPadding(U64)]
+tag_place = |name, { size, align, offset }| {
+    if offset < size {
+        crash "OdinGlue: ${name} has its tag at ${U64.to_str(offset)}, inside a ${U64.to_str(size)}-byte payload"
+    }
+    union_size = round_up(size, align)
+    if offset < union_size {
+        InPadding
+    } else {
+        PastPadding(offset - union_size)
+    }
 }
 
 ## A single-tag union as a struct of its payload, or as an empty struct when
@@ -720,8 +778,8 @@ single_tag = |table, plan, name, tu, layout| {
 
     $payload_structs
         .concat(definition)
-        .concat("#assert(size_of(${name}) == ${U64.to_str(layout.size64)})\n")
-        .concat("#assert(align_of(${name}) == ${U64.to_str(layout.alignment64)})\n\n")
+        .concat("#assert(size_of(${name}) == ${layout_size(layout)})\n")
+        .concat("#assert(align_of(${name}) == ${layout_alignment(layout)})\n\n")
 }
 
 ## The Odin spelling of a tag's payload. A multi-field payload also needs its
@@ -743,7 +801,7 @@ payload_struct = |table, plan, name, abi| {
     var $pad = 0
     for field in abi.payload_fields {
         if field.is_padding {
-            $out = $out.concat("\t_pad${U64.to_str($pad)}: [${U64.to_str(field.size64)}]u8,\n")
+            $out = $out.concat("\t_pad${U64.to_str($pad)}: [${field_size(field)}]u8,\n")
             $pad = $pad + 1
         } else {
             $out = $out.concat("\t${field.name}: ${odin_type(table, plan, field.type_id)},\n")
@@ -751,13 +809,13 @@ payload_struct = |table, plan, name, abi| {
     }
     $out = $out
         .concat("}\n\n")
-        .concat("#assert(size_of(${name}) == ${U64.to_str(abi.payload_size64)})\n")
-        .concat("#assert(align_of(${name}) == ${U64.to_str(abi.payload_alignment64)})\n")
+        .concat("#assert(size_of(${name}) == ${width_value({ ptr32: abi.payload_size32, ptr64: abi.payload_size64 })})\n")
+        .concat("#assert(align_of(${name}) == ${width_value({ ptr32: abi.payload_alignment32, ptr64: abi.payload_alignment64 })})\n")
     for field in abi.payload_fields {
         if !field.is_padding {
             $out = $out
-                .concat("#assert(offset_of(${name}, ${field.name}) == ${U64.to_str(field.offset64)})\n")
-                .concat("#assert(size_of(type_of(${name}{}.${field.name})) == ${U64.to_str(field.size64)})\n")
+                .concat("#assert(offset_of(${name}, ${field.name}) == ${field_offset(field)})\n")
+                .concat("#assert(size_of(type_of(${name}{}.${field.name})) == ${field_size(field)})\n")
         }
     }
     $out.concat("\n")

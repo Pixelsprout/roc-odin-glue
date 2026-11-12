@@ -4,9 +4,13 @@ package engine
 // Do not edit by hand; regenerate instead:
 //   roc glue ./OdinGlue.roc <out-dir> <platform>/main.roc
 
-// Every offset below is the 64-bit layout. This spec emits one pointer
-// width, so the host must be a 64-bit target.
-#assert(size_of(uintptr) == 8)
+// Each layout value below is written for both pointer widths. Roc sizes
+// its refcounts and lengths by the pointer width, so uint must match it.
+#assert(size_of(uintptr) == 8 || size_of(uintptr) == 4)
+#assert(size_of(uint) == size_of(uintptr))
+
+@(private = "file")
+ROC_POINTER_64 :: size_of(uintptr) == 8
 
 // The helpers below allocate and free through roc_alloc and roc_dealloc.
 // The host defines both in this package, because the Roc app calls them.
@@ -70,8 +74,8 @@ Roc_List :: struct($T: typeid) {
 	capacity_or_alloc_ptr: uint,
 }
 
-#assert(size_of(Roc_List(u8)) == 24)
-#assert(align_of(Roc_List(u8)) == 8)
+#assert(size_of(Roc_List(u8)) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_List(u8)) == (8 when ROC_POINTER_64 else 4))
 
 // A seamless slice tags the low bit of capacity_or_alloc_ptr and keeps
 // the data pointer of the allocation it shares there.
@@ -127,8 +131,8 @@ Roc_Str :: struct {
 	length:                uint,
 }
 
-#assert(size_of(Roc_Str) == 24)
-#assert(align_of(Roc_Str) == 8)
+#assert(size_of(Roc_Str) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_Str) == (8 when ROC_POINTER_64 else 4))
 // The inline length byte is the last byte, so the layout assumes little-endian.
 #assert(ODIN_ENDIAN == .Little)
 
@@ -176,23 +180,23 @@ Roc_Init_Arg0 :: struct {
 	meshes: Roc_List(Roc_Init_Arg0_Meshes),
 }
 
-#assert(size_of(Roc_Init_Arg0) == 32)
+#assert(size_of(Roc_Init_Arg0) == (32 when ROC_POINTER_64 else 24))
 #assert(align_of(Roc_Init_Arg0) == 8)
 #assert(offset_of(Roc_Init_Arg0, seed) == 0)
 #assert(size_of(type_of(Roc_Init_Arg0{}.seed)) == 8)
 #assert(offset_of(Roc_Init_Arg0, meshes) == 8)
-#assert(size_of(type_of(Roc_Init_Arg0{}.meshes)) == 24)
+#assert(size_of(type_of(Roc_Init_Arg0{}.meshes)) == (24 when ROC_POINTER_64 else 12))
 
 Roc_Init_Arg0_Meshes :: struct {
 	name: Roc_Str,
 	id: u32,
 }
 
-#assert(size_of(Roc_Init_Arg0_Meshes) == 32)
-#assert(align_of(Roc_Init_Arg0_Meshes) == 8)
+#assert(size_of(Roc_Init_Arg0_Meshes) == (32 when ROC_POINTER_64 else 16))
+#assert(align_of(Roc_Init_Arg0_Meshes) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_Init_Arg0_Meshes, name) == 0)
-#assert(size_of(type_of(Roc_Init_Arg0_Meshes{}.name)) == 24)
-#assert(offset_of(Roc_Init_Arg0_Meshes, id) == 24)
+#assert(size_of(type_of(Roc_Init_Arg0_Meshes{}.name)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_Init_Arg0_Meshes, id) == (24 when ROC_POINTER_64 else 12))
 #assert(size_of(type_of(Roc_Init_Arg0_Meshes{}.id)) == 4)
 
 Roc_Step_Arg1 :: struct {
@@ -201,13 +205,13 @@ Roc_Step_Arg1 :: struct {
 	mouse: Roc_Step_Arg1_Mouse,
 }
 
-#assert(size_of(Roc_Step_Arg1) == 56)
-#assert(align_of(Roc_Step_Arg1) == 8)
+#assert(size_of(Roc_Step_Arg1) == (56 when ROC_POINTER_64 else 32))
+#assert(align_of(Roc_Step_Arg1) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_Step_Arg1, held) == 0)
-#assert(size_of(type_of(Roc_Step_Arg1{}.held)) == 24)
-#assert(offset_of(Roc_Step_Arg1, pressed) == 24)
-#assert(size_of(type_of(Roc_Step_Arg1{}.pressed)) == 24)
-#assert(offset_of(Roc_Step_Arg1, mouse) == 48)
+#assert(size_of(type_of(Roc_Step_Arg1{}.held)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_Step_Arg1, pressed) == (24 when ROC_POINTER_64 else 12))
+#assert(size_of(type_of(Roc_Step_Arg1{}.pressed)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_Step_Arg1, mouse) == (48 when ROC_POINTER_64 else 24))
 #assert(size_of(type_of(Roc_Step_Arg1{}.mouse)) == 8)
 
 Roc_Step_Arg1_Mouse :: struct {
@@ -227,12 +231,12 @@ Roc_Step :: struct {
 	model: rawptr,
 }
 
-#assert(size_of(Roc_Step) == 32)
-#assert(align_of(Roc_Step) == 8)
+#assert(size_of(Roc_Step) == (32 when ROC_POINTER_64 else 16))
+#assert(align_of(Roc_Step) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_Step, commands) == 0)
-#assert(size_of(type_of(Roc_Step{}.commands)) == 24)
-#assert(offset_of(Roc_Step, model) == 24)
-#assert(size_of(type_of(Roc_Step{}.model)) == 8)
+#assert(size_of(type_of(Roc_Step{}.commands)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_Step, model) == (24 when ROC_POINTER_64 else 12))
+#assert(size_of(type_of(Roc_Step{}.model)) == (8 when ROC_POINTER_64 else 4))
 
 Roc_Step_Commands :: struct {}
 
@@ -244,11 +248,11 @@ Roc_View :: struct {
 	camera: Roc_View_Camera,
 }
 
-#assert(size_of(Roc_View) == 56)
-#assert(align_of(Roc_View) == 8)
+#assert(size_of(Roc_View) == (56 when ROC_POINTER_64 else 40))
+#assert(align_of(Roc_View) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_View, draws) == 0)
-#assert(size_of(type_of(Roc_View{}.draws)) == 24)
-#assert(offset_of(Roc_View, camera) == 24)
+#assert(size_of(type_of(Roc_View{}.draws)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_View, camera) == (24 when ROC_POINTER_64 else 12))
 #assert(size_of(type_of(Roc_View{}.camera)) == 28)
 
 Roc_View_Draws :: struct {
