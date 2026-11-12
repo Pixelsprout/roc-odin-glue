@@ -27,7 +27,8 @@ roc glue ./OdinGlue.roc ./src path/to/platform/main.roc
 
 Try it against the bundled examples, which need no host and no build target.
 `example/check.sh` regenerates them, compares them with the committed files,
-compiles them and runs the helper and layout tests:
+compiles them, type-checks them for wasm32 and runs the helper and layout
+tests:
 
 ```sh
 ./example/check.sh
@@ -41,7 +42,11 @@ For a platform requiring
 ```odin
 package engine
 
-#assert(size_of(uintptr) == 8)
+#assert(size_of(uintptr) == 8 || size_of(uintptr) == 4)
+#assert(size_of(uint) == size_of(uintptr))
+
+@(private = "file")
+ROC_POINTER_64 :: size_of(uintptr) == 8
 
 Roc_List :: struct($T: typeid) {
 	elements:              [^]T,
@@ -49,20 +54,20 @@ Roc_List :: struct($T: typeid) {
 	capacity_or_alloc_ptr: uint,
 }
 
-#assert(size_of(Roc_List(u8)) == 24)
-#assert(align_of(Roc_List(u8)) == 8)
+#assert(size_of(Roc_List(u8)) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_List(u8)) == (8 when ROC_POINTER_64 else 4))
 
 Roc_Init :: struct {
 	count: u64,
 	points: Roc_List(Roc_Init_Points),
 }
 
-#assert(size_of(Roc_Init) == 32)
+#assert(size_of(Roc_Init) == (32 when ROC_POINTER_64 else 24))
 #assert(align_of(Roc_Init) == 8)
 #assert(offset_of(Roc_Init, count) == 0)
 #assert(size_of(type_of(Roc_Init{}.count)) == 8)
 #assert(offset_of(Roc_Init, points) == 8)
-#assert(size_of(type_of(Roc_Init{}.points)) == 24)
+#assert(size_of(type_of(Roc_Init{}.points)) == (24 when ROC_POINTER_64 else 12))
 
 /* … Roc_Init_Points, then: */
 
@@ -78,6 +83,15 @@ foreign {
 ```
 
 The full file is in [`example/expected/`](example/expected/).
+
+### Pointer widths
+
+The type table carries every size, alignment and offset for 32-bit and 64-bit
+pointers. Roc commits one field order for both widths, so each type gets one
+declaration. An assert whose value differs between the widths picks it with
+`when ROC_POINTER_64`. The same file builds for a 64-bit host and for
+`freestanding_wasm32`. On wasm32 a `Str` or `List` header is 12 bytes, and
+`uint` is 4 bytes, as Roc's refcount and length are.
 
 ### Naming
 
@@ -110,7 +124,7 @@ survives adding a field to the record. Regenerate and rebuild; change nothing.
 | `F32`, `F64` | `f32`, `f64` |
 | `Bool` | `bool` |
 | `List(T)` | `Roc_List(T)` |
-| `Str` | `Roc_Str`, 24 bytes, up to 23 bytes inline |
+| `Str` | `Roc_Str`, 24 bytes with up to 23 inline, or 12 bytes with up to 11 inline on 32-bit |
 | `Box(T)` | `rawptr`; the payload is not emitted |
 | `{}` | a proc with no result; only as a return type |
 | records | a generated `struct`, in committed field order |
@@ -181,8 +195,9 @@ gets a trailing underscore (`switch_`). A union with no payloads is a bare
 aligned payload adds after the largest one, such as byte 28 of
 `[Ref(Str), Wide(F32, F32, F32, F32, F32, F32, F32)]`. The struct is then a
 `#raw_union` of the payload and an anonymous struct that holds the tag at
-that offset, so `value.tag` still works. OdinGlue emits only the 64-bit
-layout, with no accessors or constructors.
+that offset, so `value.tag` still works. If the tag is in that padding at
+only one pointer width, as in this 64-bit example, both widths use the
+`#raw_union` form. OdinGlue emits no accessors or constructors.
 The full file is in [`example/unions/expected/`](example/unions/expected/).
 
 ### Recursive tag unions
@@ -229,10 +244,10 @@ Roc and free the values Roc returns. Each helper allocates and frees through
 | `roc_list_decref(list)` | Drops one reference to a list. On the last one, it also drops each element's references. |
 | `roc_incref_box(box)` | Adds one reference to a box. |
 
-A list whose elements hold refcounted values has a 16-byte header: the
-element count, then the refcount. Other lists and strings have an 8-byte
-header. The helpers pick the header from the type table, so the host never
-computes an offset. A list of a zero-size type still allocates its header, and
+A list whose elements hold refcounted values has a two-word header: the
+element count, then the refcount. Other lists and strings have a one-word
+header. A word is 8 bytes, or 4 on 32-bit. The helpers pick the header from
+the type table, so the host never computes an offset. A list of a zero-size type still allocates its header, and
 its length counts the elements. A box cannot be freed from the host, because only the
 compiler knows its payload layout. Export a Roc function that drops it.
 `roc_decref` on a record skips a `Box` field for the same reason: the host
@@ -272,10 +287,10 @@ file, and they cannot catch a type of the right width but the wrong meaning
 
 ## Limitations
 
-- **64-bit only.** The spec emits the 64-bit layout and asserts
-  `size_of(uintptr) == 8`. The type table carries both widths
-  (`offset32`/`offset64`), so 32-bit support is additive work, not a redesign.
-- Verified on `arm64mac`. Nothing else has been tried.
+- Odin targets where `int` is wider than a pointer, such as `js_wasm64p32`,
+  fail the `size_of(uint) == size_of(uintptr)` assert.
+- Verified on `arm64mac` and on `freestanding_wasm32`, through an emscripten
+  host. Nothing else has been tried.
 - The host implements `roc_alloc`, `roc_dealloc` and `roc_realloc` itself.
 - The refcount helpers are not atomic. They assume one thread.
 

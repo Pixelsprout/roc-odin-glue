@@ -4,9 +4,13 @@ package engine
 // Do not edit by hand; regenerate instead:
 //   roc glue ./OdinGlue.roc <out-dir> <platform>/main.roc
 
-// Every offset below is the 64-bit layout. This spec emits one pointer
-// width, so the host must be a 64-bit target.
-#assert(size_of(uintptr) == 8)
+// Each layout value below is written for both pointer widths. Roc sizes
+// its refcounts and lengths by the pointer width, so uint must match it.
+#assert(size_of(uintptr) == 8 || size_of(uintptr) == 4)
+#assert(size_of(uint) == size_of(uintptr))
+
+@(private = "file")
+ROC_POINTER_64 :: size_of(uintptr) == 8
 
 // The helpers below allocate and free through roc_alloc and roc_dealloc.
 // The host defines both in this package, because the Roc app calls them.
@@ -70,8 +74,8 @@ Roc_List :: struct($T: typeid) {
 	capacity_or_alloc_ptr: uint,
 }
 
-#assert(size_of(Roc_List(u8)) == 24)
-#assert(align_of(Roc_List(u8)) == 8)
+#assert(size_of(Roc_List(u8)) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_List(u8)) == (8 when ROC_POINTER_64 else 4))
 
 // A seamless slice tags the low bit of capacity_or_alloc_ptr and keeps
 // the data pointer of the allocation it shares there.
@@ -127,8 +131,8 @@ Roc_Str :: struct {
 	length:                uint,
 }
 
-#assert(size_of(Roc_Str) == 24)
-#assert(align_of(Roc_Str) == 8)
+#assert(size_of(Roc_Str) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_Str) == (8 when ROC_POINTER_64 else 4))
 // The inline length byte is the last byte, so the layout assumes little-endian.
 #assert(ODIN_ENDIAN == .Little)
 
@@ -179,37 +183,37 @@ Roc_View :: struct {
 	phase: Roc_Phase,
 }
 
-#assert(size_of(Roc_View) == 256)
+#assert(size_of(Roc_View) == (256 when ROC_POINTER_64 else 184))
 #assert(align_of(Roc_View) == 8)
 #assert(offset_of(Roc_View, ray) == 0)
 #assert(size_of(type_of(Roc_View{}.ray)) == 24)
 #assert(offset_of(Roc_View, spawn) == 24)
 #assert(size_of(type_of(Roc_View{}.spawn)) == 8)
 #assert(offset_of(Roc_View, items) == 32)
-#assert(size_of(type_of(Roc_View{}.items)) == 24)
-#assert(offset_of(Roc_View, label) == 56)
-#assert(size_of(type_of(Roc_View{}.label)) == 40)
-#assert(offset_of(Roc_View, orders) == 96)
-#assert(size_of(type_of(Roc_View{}.orders)) == 24)
-#assert(offset_of(Roc_View, quits) == 120)
-#assert(size_of(type_of(Roc_View{}.quits)) == 24)
-#assert(offset_of(Roc_View, say) == 144)
-#assert(size_of(type_of(Roc_View{}.say)) == 24)
-#assert(offset_of(Roc_View, tucked) == 168)
+#assert(size_of(type_of(Roc_View{}.items)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_View, label) == (56 when ROC_POINTER_64 else 44))
+#assert(size_of(type_of(Roc_View{}.label)) == (40 when ROC_POINTER_64 else 20))
+#assert(offset_of(Roc_View, orders) == (96 when ROC_POINTER_64 else 64))
+#assert(size_of(type_of(Roc_View{}.orders)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_View, quits) == (120 when ROC_POINTER_64 else 76))
+#assert(size_of(type_of(Roc_View{}.quits)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_View, say) == (144 when ROC_POINTER_64 else 88))
+#assert(size_of(type_of(Roc_View{}.say)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_View, tucked) == (168 when ROC_POINTER_64 else 100))
 #assert(size_of(type_of(Roc_View{}.tucked)) == 32)
-#assert(offset_of(Roc_View, body) == 200)
+#assert(offset_of(Roc_View, body) == (200 when ROC_POINTER_64 else 132))
 #assert(size_of(type_of(Roc_View{}.body)) == 12)
-#assert(offset_of(Roc_View, nested) == 212)
+#assert(offset_of(Roc_View, nested) == (212 when ROC_POINTER_64 else 144))
 #assert(size_of(type_of(Roc_View{}.nested)) == 12)
-#assert(offset_of(Roc_View, pair) == 224)
+#assert(offset_of(Roc_View, pair) == (224 when ROC_POINTER_64 else 156))
 #assert(size_of(type_of(Roc_View{}.pair)) == 8)
-#assert(offset_of(Roc_View, shape) == 232)
+#assert(offset_of(Roc_View, shape) == (232 when ROC_POINTER_64 else 164))
 #assert(size_of(type_of(Roc_View{}.shape)) == 16)
-#assert(offset_of(Roc_View, halt) == 248)
+#assert(offset_of(Roc_View, halt) == (248 when ROC_POINTER_64 else 180))
 #assert(size_of(type_of(Roc_View{}.halt)) == 0)
-#assert(offset_of(Roc_View, mode) == 248)
+#assert(offset_of(Roc_View, mode) == (248 when ROC_POINTER_64 else 180))
 #assert(size_of(type_of(Roc_View{}.mode)) == 1)
-#assert(offset_of(Roc_View, phase) == 249)
+#assert(offset_of(Roc_View, phase) == (249 when ROC_POINTER_64 else 181))
 #assert(size_of(type_of(Roc_View{}.phase)) == 1)
 
 Roc_View_Ray_Hit :: struct {
@@ -275,11 +279,11 @@ Roc_View_Label_Named :: struct {
 	_1: u8,
 }
 
-#assert(size_of(Roc_View_Label_Named) == 32)
-#assert(align_of(Roc_View_Label_Named) == 8)
+#assert(size_of(Roc_View_Label_Named) == (32 when ROC_POINTER_64 else 16))
+#assert(align_of(Roc_View_Label_Named) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_View_Label_Named, _0) == 0)
-#assert(size_of(type_of(Roc_View_Label_Named{}._0)) == 24)
-#assert(offset_of(Roc_View_Label_Named, _1) == 24)
+#assert(size_of(type_of(Roc_View_Label_Named{}._0)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_View_Label_Named, _1) == (24 when ROC_POINTER_64 else 12))
 #assert(size_of(type_of(Roc_View_Label_Named{}._1)) == 1)
 
 Roc_View_Label_Tag :: enum u8 {
@@ -296,9 +300,9 @@ Roc_View_Label :: struct {
 	tag: Roc_View_Label_Tag,
 }
 
-#assert(size_of(Roc_View_Label) == 40)
-#assert(align_of(Roc_View_Label) == 8)
-#assert(offset_of(Roc_View_Label, tag) == 32)
+#assert(size_of(Roc_View_Label) == (40 when ROC_POINTER_64 else 20))
+#assert(align_of(Roc_View_Label) == (8 when ROC_POINTER_64 else 4))
+#assert(offset_of(Roc_View_Label, tag) == (32 when ROC_POINTER_64 else 16))
 
 Roc_View_Orders_Tag :: enum u8 {
 	Load = 0,
@@ -314,21 +318,21 @@ Roc_View_Orders :: struct {
 	tag: Roc_View_Orders_Tag,
 }
 
-#assert(size_of(Roc_View_Orders) == 56)
-#assert(align_of(Roc_View_Orders) == 8)
-#assert(offset_of(Roc_View_Orders, tag) == 48)
+#assert(size_of(Roc_View_Orders) == (56 when ROC_POINTER_64 else 28))
+#assert(align_of(Roc_View_Orders) == (8 when ROC_POINTER_64 else 4))
+#assert(offset_of(Roc_View_Orders, tag) == (48 when ROC_POINTER_64 else 24))
 
 Roc_View_Orders_Load :: struct {
 	assets: Roc_List(Roc_Str),
 	pack: Roc_Str,
 }
 
-#assert(size_of(Roc_View_Orders_Load) == 48)
-#assert(align_of(Roc_View_Orders_Load) == 8)
+#assert(size_of(Roc_View_Orders_Load) == (48 when ROC_POINTER_64 else 24))
+#assert(align_of(Roc_View_Orders_Load) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_View_Orders_Load, assets) == 0)
-#assert(size_of(type_of(Roc_View_Orders_Load{}.assets)) == 24)
-#assert(offset_of(Roc_View_Orders_Load, pack) == 24)
-#assert(size_of(type_of(Roc_View_Orders_Load{}.pack)) == 24)
+#assert(size_of(type_of(Roc_View_Orders_Load{}.assets)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_View_Orders_Load, pack) == (24 when ROC_POINTER_64 else 12))
+#assert(size_of(type_of(Roc_View_Orders_Load{}.pack)) == (24 when ROC_POINTER_64 else 12))
 
 Roc_View_Quits :: struct {}
 
@@ -339,8 +343,8 @@ Roc_View_Say :: struct {
 	say: Roc_Str,
 }
 
-#assert(size_of(Roc_View_Say) == 24)
-#assert(align_of(Roc_View_Say) == 8)
+#assert(size_of(Roc_View_Say) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_View_Say) == (8 when ROC_POINTER_64 else 4))
 
 Roc_View_Tucked_Wide :: struct {
 	_0: f32,
@@ -388,7 +392,7 @@ Roc_View_Tucked :: struct #raw_union {
 }
 
 #assert(size_of(Roc_View_Tucked) == 32)
-#assert(align_of(Roc_View_Tucked) == 8)
+#assert(align_of(Roc_View_Tucked) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_View_Tucked, tag) == 28)
 
 Roc_View_Body :: struct {

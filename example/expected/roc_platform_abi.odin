@@ -4,9 +4,13 @@ package engine
 // Do not edit by hand; regenerate instead:
 //   roc glue ./OdinGlue.roc <out-dir> <platform>/main.roc
 
-// Every offset below is the 64-bit layout. This spec emits one pointer
-// width, so the host must be a 64-bit target.
-#assert(size_of(uintptr) == 8)
+// Each layout value below is written for both pointer widths. Roc sizes
+// its refcounts and lengths by the pointer width, so uint must match it.
+#assert(size_of(uintptr) == 8 || size_of(uintptr) == 4)
+#assert(size_of(uint) == size_of(uintptr))
+
+@(private = "file")
+ROC_POINTER_64 :: size_of(uintptr) == 8
 
 // The helpers below allocate and free through roc_alloc and roc_dealloc.
 // The host defines both in this package, because the Roc app calls them.
@@ -70,8 +74,8 @@ Roc_List :: struct($T: typeid) {
 	capacity_or_alloc_ptr: uint,
 }
 
-#assert(size_of(Roc_List(u8)) == 24)
-#assert(align_of(Roc_List(u8)) == 8)
+#assert(size_of(Roc_List(u8)) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_List(u8)) == (8 when ROC_POINTER_64 else 4))
 
 // A seamless slice tags the low bit of capacity_or_alloc_ptr and keeps
 // the data pointer of the allocation it shares there.
@@ -126,12 +130,12 @@ Roc_Init :: struct {
 	points: Roc_List(Roc_Init_Points),
 }
 
-#assert(size_of(Roc_Init) == 32)
+#assert(size_of(Roc_Init) == (32 when ROC_POINTER_64 else 24))
 #assert(align_of(Roc_Init) == 8)
 #assert(offset_of(Roc_Init, count) == 0)
 #assert(size_of(type_of(Roc_Init{}.count)) == 8)
 #assert(offset_of(Roc_Init, points) == 8)
-#assert(size_of(type_of(Roc_Init{}.points)) == 24)
+#assert(size_of(type_of(Roc_Init{}.points)) == (24 when ROC_POINTER_64 else 12))
 
 Roc_Init_Points :: struct {
 	x: f32,

@@ -22,6 +22,14 @@ cp example/expected/roc_platform_abi.odin example/test/host_stub.odin "$out/buil
 odin build "$out/build" -build-mode:static -out:"$out/build.a" -vet -strict-style
 echo "== example compiles"
 
+# The 32-bit asserts only run when Odin checks a 32-bit target.
+for example in example example/boxed example/unions example/tree; do
+	mkdir -p "$out/wasm32/$example"
+	cp "$example/expected/roc_platform_abi.odin" example/test/host_stub.odin "$out/wasm32/$example"
+	odin check "$out/wasm32/$example" -target:freestanding_wasm32 -no-entry-point -vet -strict-style
+	echo "== $example checks on wasm32"
+done
+
 cp example/boxed/expected/roc_platform_abi.odin example/test/*.odin "$out/test"
 odin test "$out/test" -out:"$out/test.bin" -vet -strict-style -define:ODIN_TEST_THREADS=1
 

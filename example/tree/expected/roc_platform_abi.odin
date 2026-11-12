@@ -4,9 +4,13 @@ package engine
 // Do not edit by hand; regenerate instead:
 //   roc glue ./OdinGlue.roc <out-dir> <platform>/main.roc
 
-// Every offset below is the 64-bit layout. This spec emits one pointer
-// width, so the host must be a 64-bit target.
-#assert(size_of(uintptr) == 8)
+// Each layout value below is written for both pointer widths. Roc sizes
+// its refcounts and lengths by the pointer width, so uint must match it.
+#assert(size_of(uintptr) == 8 || size_of(uintptr) == 4)
+#assert(size_of(uint) == size_of(uintptr))
+
+@(private = "file")
+ROC_POINTER_64 :: size_of(uintptr) == 8
 
 // The helpers below allocate and free through roc_alloc and roc_dealloc.
 // The host defines both in this package, because the Roc app calls them.
@@ -70,8 +74,8 @@ Roc_List :: struct($T: typeid) {
 	capacity_or_alloc_ptr: uint,
 }
 
-#assert(size_of(Roc_List(u8)) == 24)
-#assert(align_of(Roc_List(u8)) == 8)
+#assert(size_of(Roc_List(u8)) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_List(u8)) == (8 when ROC_POINTER_64 else 4))
 
 // A seamless slice tags the low bit of capacity_or_alloc_ptr and keeps
 // the data pointer of the allocation it shares there.
@@ -127,8 +131,8 @@ Roc_Str :: struct {
 	length:                uint,
 }
 
-#assert(size_of(Roc_Str) == 24)
-#assert(align_of(Roc_Str) == 8)
+#assert(size_of(Roc_Str) == (24 when ROC_POINTER_64 else 12))
+#assert(align_of(Roc_Str) == (8 when ROC_POINTER_64 else 4))
 // The inline length byte is the last byte, so the layout assumes little-endian.
 #assert(ODIN_ENDIAN == .Little)
 
@@ -166,11 +170,11 @@ Roc_Element_Box :: struct {
 	_0: Roc_Element_Box_0,
 }
 
-#assert(size_of(Roc_Element_Box) == 32)
-#assert(align_of(Roc_Element_Box) == 8)
+#assert(size_of(Roc_Element_Box) == (32 when ROC_POINTER_64 else 20))
+#assert(align_of(Roc_Element_Box) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_Element_Box, _1) == 0)
-#assert(size_of(type_of(Roc_Element_Box{}._1)) == 24)
-#assert(offset_of(Roc_Element_Box, _0) == 24)
+#assert(size_of(type_of(Roc_Element_Box{}._1)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_Element_Box, _0) == (24 when ROC_POINTER_64 else 12))
 #assert(size_of(type_of(Roc_Element_Box{}._0)) == 8)
 
 Roc_Element_Tag :: enum u8 {
@@ -188,9 +192,9 @@ Roc_Element :: struct {
 	tag: Roc_Element_Tag,
 }
 
-#assert(size_of(Roc_Element) == 40)
-#assert(align_of(Roc_Element) == 8)
-#assert(offset_of(Roc_Element, tag) == 32)
+#assert(size_of(Roc_Element) == (40 when ROC_POINTER_64 else 24))
+#assert(align_of(Roc_Element) == (8 when ROC_POINTER_64 else 4))
+#assert(offset_of(Roc_Element, tag) == (32 when ROC_POINTER_64 else 20))
 
 Roc_Element_Box_0 :: struct {
 	background: u32,
@@ -209,11 +213,11 @@ Roc_Element_Text :: struct {
 	size: f32,
 }
 
-#assert(size_of(Roc_Element_Text) == 32)
-#assert(align_of(Roc_Element_Text) == 8)
+#assert(size_of(Roc_Element_Text) == (32 when ROC_POINTER_64 else 16))
+#assert(align_of(Roc_Element_Text) == (8 when ROC_POINTER_64 else 4))
 #assert(offset_of(Roc_Element_Text, str) == 0)
-#assert(size_of(type_of(Roc_Element_Text{}.str)) == 24)
-#assert(offset_of(Roc_Element_Text, size) == 24)
+#assert(size_of(type_of(Roc_Element_Text{}.str)) == (24 when ROC_POINTER_64 else 12))
+#assert(offset_of(Roc_Element_Text, size) == (24 when ROC_POINTER_64 else 12))
 #assert(size_of(type_of(Roc_Element_Text{}.size)) == 4)
 
 
