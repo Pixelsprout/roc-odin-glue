@@ -25,6 +25,7 @@ import pf.AbiLayout
 import pf.AbiFieldLayout
 import pf.ProvidesEntry
 import pf.TagUnionRepr
+import pf.TagVariant
 import pf.AbiTagLayout
 
 ## One name the host will use, the structural key it stands for, and the type
@@ -167,14 +168,26 @@ is_nominal = |tu| {
 }
 
 union_key : TypeTable, U64, TagUnionRepr -> Str
-union_key = |table, type_id, tu| "tu:${tu.name}:${table.tag_union_signature(table.layout(type_id), tu)}"
+union_key = |table, type_id, tu| "tu:${tu.name}:${U64.to_str(table.shape_id(type_id))}"
+
+## A short name for `type_id` in a crash message.
+type_label : TypeTable, U64 -> Str
+type_label = |table, type_id|
+    match table.get(type_id) {
+        RocBox(inner) => "box:${type_label(table, inner)}"
+        RocList(elem) => "list:${type_label(table, elem)}"
+        RocRecord(rec) => "rec:${rec.name}"
+        RocTagUnion(tu) => "tu:${tu.name}"
+        RocStr => "str"
+        _other => "type ${U64.to_str(type_id)}"
+    }
 
 ## Crashes on the unions this spec cannot emit. It checks recursion through a
 ## Box before `holds_box`, so that recursion gets its own message and not the
 ## `holds_box` one. Recursion through a List is stored inline and passes.
 check_union : TypeTable, U64, TagUnionRepr -> {}
 check_union = |table, type_id, tu| {
-    token = table.structural_token(type_id)
+    token = type_label(table, type_id)
     if tu.tags.is_empty() {
         crash "OdinGlue: ${token} has no tags; empty tag unions are not supported"
     }
@@ -283,7 +296,7 @@ odin_type = |table, plan, type_id| {
         RocList(elem_id) => "Roc_List(${odin_type(table, plan, elem_id)})"
         RocRecord(rec) => canonical(plan, rec.name)
         RocTagUnion(tu) => canonical(plan, union_key(table, type_id, tu))
-        _other => crash "OdinGlue: no Odin spelling for ${table.structural_token(type_id)} (type id ${U64.to_str(type_id)})"
+        _other => crash "OdinGlue: no Odin spelling for ${type_label(table, type_id)} (type id ${U64.to_str(type_id)})"
     }
 }
 
@@ -784,7 +797,7 @@ single_tag = |table, plan, name, tu, layout| {
 
 ## The Odin spelling of a tag's payload. A multi-field payload also needs its
 ## payload struct emitted.
-payload_type : TypeTable, List(Named), Str, { name : Str, payload : List(U64) }, AbiTagLayout -> { spelling : Str, structs : Str }
+payload_type : TypeTable, List(Named), Str, TagVariant, AbiTagLayout -> { spelling : Str, structs : Str }
 payload_type = |table, plan, union_name, tag, abi|
     match tag.payload {
         [payload_id] => { spelling: odin_type(table, plan, payload_id), structs: "" }
@@ -987,7 +1000,7 @@ union_decref = |table, plan, entry, tu| {
 }
 
 ## One release line for each refcounted value in a tag's payload.
-payload_releases : TypeTable, List(Named), Str, { name : Str, payload : List(U64) }, AbiTagLayout, Str -> Str
+payload_releases : TypeTable, List(Named), Str, TagVariant, AbiTagLayout, Str -> Str
 payload_releases = |table, plan, path, tag, abi, indent|
     match tag.payload {
         [payload_id] =>
@@ -1018,7 +1031,7 @@ release_proc = |table, plan, type_id|
         RocList(elem_id) => Release("roc_list_decref_${ident(odin_type(table, plan, elem_id))}")
         RocRecord(rec) =>
             if rec.fields.any(|field| is_box(table, field.type_id)) {
-                crash "OdinGlue: ${table.structural_token(type_id)} holds a Box inside another value; only a record the host receives directly may hold a Box"
+                crash "OdinGlue: ${type_label(table, type_id)} holds a Box inside another value; only a record the host receives directly may hold a Box"
             } else if table.layout(type_id).contains_refcounted {
                 Release(decref_name(canonical(plan, rec.name)))
             } else {
